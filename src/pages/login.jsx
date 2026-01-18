@@ -2,6 +2,7 @@ import React, { useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useNavigate } from 'react-router-dom'
 import { Hammer, Loader2, AlertCircle } from 'lucide-react'
+import { APP_CONFIG } from '../config'
 
 export default function Login() {
   const navigate = useNavigate()
