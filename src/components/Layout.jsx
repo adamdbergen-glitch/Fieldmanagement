@@ -1,7 +1,10 @@
-import React from 'react'
+import React, { useState, useEffect } from 'react'
 import { Outlet, Link, useLocation } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
-import { LayoutDashboard, Folder, Users, LogOut, Book, Calendar, UserCog } from 'lucide-react'
+import { 
+  LayoutDashboard, Folder, Users, LogOut, Book, Calendar, UserCog, 
+  Menu, X // <--- Added Icons for Mobile Menu
+} from 'lucide-react'
 
 // 1. IMPORT CONFIG (For White-Labeling)
 import { APP_CONFIG } from '../config'
@@ -12,10 +15,16 @@ import { can, PERMISSIONS } from '../lib/permissions'
 
 export default function Layout() {
   const location = useLocation()
-  
-  // 3. GET USER PROFILE & ROLE
   const { userProfile } = useAuth()
   const userRole = userProfile?.role || 'crew'
+  
+  // STATE: Mobile Menu Toggle
+  const [isMobileOpen, setIsMobileOpen] = useState(false)
+
+  // EFFECT: Close mobile menu whenever the user clicks a link
+  useEffect(() => {
+    setIsMobileOpen(false)
+  }, [location.pathname])
 
   const linkClass = (path) => `
     flex items-center gap-3 px-4 py-3 rounded-lg transition-colors
@@ -25,19 +34,56 @@ export default function Layout() {
   `
 
   return (
-    <div className="flex h-screen bg-slate-50">
-      {/* SIDEBAR */}
-      <aside className="w-64 bg-slate-900 text-white flex flex-col transition-all duration-300">
-        <div className="p-6">
-          {/* DYNAMIC BRAND NAME (From Config) */}
-          <h1 className="text-xl font-bold text-amber-500 tracking-tighter leading-tight uppercase">
-            {APP_CONFIG.appName}
-          </h1>
-          <p className="text-xs text-slate-500 uppercase tracking-widest mt-2">
-            {APP_CONFIG.tagline}
-          </p>
+    <div className="flex h-screen bg-slate-50 overflow-hidden">
+      
+      {/* --- MOBILE HEADER (Visible only on small screens) --- */}
+      <div className="md:hidden fixed top-0 left-0 right-0 h-16 bg-slate-900 z-30 flex items-center justify-between px-4 shadow-md">
+        <span className="text-amber-500 font-bold uppercase tracking-tighter">
+          {APP_CONFIG.appName}
+        </span>
+        <button 
+          onClick={() => setIsMobileOpen(true)}
+          className="text-white p-2 hover:bg-slate-800 rounded"
+        >
+          <Menu size={24} />
+        </button>
+      </div>
+
+      {/* --- SIDEBAR --- */}
+      {/* TRANSFORMATION EXPLAINED:
+         1. 'fixed inset-y-0': Sticks to side on mobile
+         2. 'z-50': Sits on top of everything
+         3. 'md:relative': Returns to normal side-by-side layout on Desktop
+         4. '-translate-x-full': Hidden by default on mobile
+         5. 'translate-x-0': Shown when isMobileOpen is true
+      */}
+      <aside className={`
+        fixed inset-y-0 left-0 z-50 w-64 bg-slate-900 text-white flex flex-col transition-transform duration-300 ease-in-out shadow-2xl md:shadow-none
+        md:relative md:translate-x-0 
+        ${isMobileOpen ? 'translate-x-0' : '-translate-x-full'}
+      `}>
+        
+        {/* Sidebar Header */}
+        <div className="p-6 flex justify-between items-start">
+          <div>
+            <h1 className="text-xl font-bold text-amber-500 tracking-tighter leading-tight uppercase">
+              {APP_CONFIG.appName}
+            </h1>
+            <p className="text-xs text-slate-500 uppercase tracking-widest mt-2">
+              {APP_CONFIG.tagline}
+            </p>
+          </div>
+          
+          {/* Close Button (Mobile Only) */}
+          <button 
+            onClick={() => setIsMobileOpen(false)}
+            className="md:hidden text-slate-400 hover:text-white"
+          >
+            <X size={24} />
+          </button>
         </div>
 
+        {/* Navigation Links */}
         <nav className="flex-1 px-4 space-y-2 mt-4 overflow-y-auto">
           <Link to="/" className={linkClass('/')}>
             <LayoutDashboard size={20} />
@@ -49,13 +95,12 @@ export default function Layout() {
             Projects
           </Link>
 
-          {/* SCHEDULE (Everyone sees this) */}
           <Link to="/calendar" className={linkClass('/calendar')}>
             <Calendar size={20} />
             Schedule
           </Link>
           
-          {/* CUSTOMERS - RESTRICTED (Admin & Foreman) */}
+          {/* CUSTOMERS - RESTRICTED */}
           {can(userRole, PERMISSIONS.CAN_MANAGE_CREW) && (
             <Link to="/customers" className={linkClass('/customers')}>
               <Users size={20} />
@@ -77,8 +122,8 @@ export default function Layout() {
           </Link>
         </nav>
 
+        {/* User Footer */}
         <div className="p-4 border-t border-slate-800">
-          {/* ROLE BADGE */}
           <div className="px-4 pb-4 mb-2 border-b border-slate-800">
              <p className="text-xs text-slate-500 uppercase">Logged in as</p>
              <p className="font-bold text-amber-500 capitalize">{userRole}</p>
@@ -94,11 +139,23 @@ export default function Layout() {
         </div>
       </aside>
 
-      <main className="flex-1 overflow-auto relative">
+      {/* --- OVERLAY BACKDROP (Mobile Only) --- */}
+      {/* Clicking this dark background closes the menu */}
+      {isMobileOpen && (
+        <div 
+          className="fixed inset-0 bg-black/50 z-40 md:hidden backdrop-blur-sm"
+          onClick={() => setIsMobileOpen(false)}
+        />
+      )}
+
+      {/* --- MAIN CONTENT AREA --- */}
+      {/* Added pt-16 on mobile to push content down below the header */}
+      <main className="flex-1 overflow-auto relative w-full pt-16 md:pt-0">
         <div className="p-4 md:p-8">
           <Outlet />
         </div>
       </main>
+
     </div>
   )
 }
