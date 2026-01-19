@@ -19,8 +19,6 @@ export default function CustomerPortal() {
   const { data: project, isLoading, error } = useQuery({
     queryKey: ['portal_project', token],
     queryFn: async () => {
-      console.log("Fetching project for token:", token) // Debug Log
-      
       // FIX: Removed .single() because we are returning a JSON set
       const { data, error } = await supabase.rpc('get_project_by_token', { token_input: token })
       
@@ -31,7 +29,6 @@ export default function CustomerPortal() {
       
       // Manually check if we got data
       if (!data || data.length === 0) {
-        console.error("No data returned from RPC")
         return null
       }
 
@@ -68,7 +65,7 @@ export default function CustomerPortal() {
     <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50 p-4 text-center">
       <h2 className="text-2xl font-bold text-slate-900 mb-2">Project Not Found</h2>
       <p className="text-slate-500 mb-6">The link may be invalid or expired.</p>
-      {/* Tiny Debug Info to help us if it fails again */}
+      {/* Tiny Debug Info */}
       <p className="text-xs text-slate-300 font-mono">Token: {token}</p>
     </div>
   )
@@ -206,6 +203,20 @@ export default function CustomerPortal() {
         </div>
 
       </div>
+    </div>
+  )
+}
+
+// --- THIS WAS MISSING IN YOUR PREVIOUS PASTE ---
+function TimelineItem({ status, title, desc, isLast }) {
+  let Icon = Circle
+  let colorClass = "text-slate-300 bg-white border-slate-300"
+  if (status === 'completed') { Icon = CheckCircle2; colorClass = "text-green-600 bg-green-50 border-green-200" } 
+  else if (status === 'current') { Icon = Clock; colorClass = "text-amber-600 bg-amber-50 border-amber-200 animate-pulse" }
+  return (
+    <div className={`relative pl-12 ${!isLast ? 'mb-8' : ''}`}>
+      <div className={`absolute left-0 w-8 h-8 rounded-full border-2 flex items-center justify-center z-10 ${colorClass}`}><Icon size={16} /></div>
+      <div><h4 className={`font-bold ${status === 'pending' ? 'text-slate-400' : 'text-slate-900'}`}>{title}</h4><p className="text-sm text-slate-500">{desc}</p></div>
     </div>
   )
 }
