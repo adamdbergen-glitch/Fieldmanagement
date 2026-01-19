@@ -19,10 +19,24 @@ export default function CustomerPortal() {
   const { data: project, isLoading, error } = useQuery({
     queryKey: ['portal_project', token],
     queryFn: async () => {
-      // Fetch project details. Ensure your 'get_project_by_token' RPC selects the 'estimate' column.
-      const { data, error } = await supabase.rpc('get_project_by_token', { token_input: token }).single()
-      if (error) throw error
-      return data
+      console.log("Fetching project for token:", token) // Debug Log
+      
+      // FIX: Removed .single() because we are returning a JSON set
+      const { data, error } = await supabase.rpc('get_project_by_token', { token_input: token })
+      
+      if (error) {
+        console.error("Supabase RPC Error:", error)
+        throw error
+      }
+      
+      // Manually check if we got data
+      if (!data || data.length === 0) {
+        console.error("No data returned from RPC")
+        return null
+      }
+
+      // Return the first item (since the RPC returns an array of JSON)
+      return data[0]
     }
   })
 
@@ -48,7 +62,16 @@ export default function CustomerPortal() {
   }
 
   if (isLoading) return <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50"><Loader2 className="animate-spin text-amber-500 mb-4" size={40} /><p className="text-slate-500 font-medium">Loading project details...</p></div>
-  if (error || !project) return <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50 p-4 text-center"><h2 className="text-2xl font-bold text-slate-900 mb-2">Project Not Found</h2><p className="text-slate-500">The link may be invalid or expired.</p></div>
+  
+  // ERROR SCREEN
+  if (error || !project) return (
+    <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50 p-4 text-center">
+      <h2 className="text-2xl font-bold text-slate-900 mb-2">Project Not Found</h2>
+      <p className="text-slate-500 mb-6">The link may be invalid or expired.</p>
+      {/* Tiny Debug Info to help us if it fails again */}
+      <p className="text-xs text-slate-300 font-mono">Token: {token}</p>
+    </div>
+  )
 
   const getStepStatus = (stepName) => {
     const statusMap = { 'New': 0, 'Scheduled': 1, 'In Progress': 2, 'Completed': 3 }
@@ -60,9 +83,7 @@ export default function CustomerPortal() {
   }
 
   // --- COUNTDOWN LOGIC ---
-  // Calculates days between NOW and START DATE
   const daysUntilStart = project.start_date ? differenceInDays(parseISO(project.start_date), new Date()) : 0
-  // Only show if positive and status is 'Scheduled'
   const showCountdown = daysUntilStart > 0 && project.status === 'Scheduled'
 
   return (
@@ -76,7 +97,7 @@ export default function CustomerPortal() {
           <p className="text-slate-500 text-sm">Client Portal</p>
         </div>
 
-        {/* --- COUNTDOWN BANNER (New!) --- */}
+        {/* --- COUNTDOWN BANNER --- */}
         {showCountdown && (
            <div className="bg-gradient-to-r from-amber-500 to-orange-600 rounded-2xl shadow-xl p-8 text-white text-center transform hover:scale-[1.02] transition-transform duration-300">
               <div className="flex justify-center mb-3">
@@ -168,7 +189,7 @@ export default function CustomerPortal() {
           )}
         </div>
 
-        {/* --- COMPANY CONTACT FOOTER (New!) --- */}
+        {/* COMPANY CONTACT FOOTER */}
         <div className="text-center space-y-4 py-6 border-t border-slate-200">
           <p className="text-slate-500 font-medium">Questions? Contact us anytime.</p>
           <div className="flex flex-col md:flex-row items-center justify-center gap-4 md:gap-8">
