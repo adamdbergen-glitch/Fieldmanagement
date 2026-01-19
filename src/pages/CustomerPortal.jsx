@@ -4,9 +4,9 @@ import { useQuery } from '@tanstack/react-query'
 import { supabase } from '../lib/supabase'
 import { 
   MapPin, Calendar, CheckCircle2, Circle, Clock, Loader2, 
-  Hammer, MessageSquare, Image as ImageIcon, Send, DollarSign
+  Hammer, MessageSquare, Image as ImageIcon, Send, DollarSign, Sparkles, Phone, Mail
 } from 'lucide-react'
-import { format, parseISO } from 'date-fns'
+import { format, parseISO, differenceInDays } from 'date-fns'
 import { APP_CONFIG } from '../config' 
 
 export default function CustomerPortal() {
@@ -19,7 +19,7 @@ export default function CustomerPortal() {
   const { data: project, isLoading, error } = useQuery({
     queryKey: ['portal_project', token],
     queryFn: async () => {
-      // NOTE: get_project_by_token usually returns select * so 'estimate' should be there if table is updated
+      // Fetch project details. Ensure your 'get_project_by_token' RPC selects the 'estimate' column.
       const { data, error } = await supabase.rpc('get_project_by_token', { token_input: token }).single()
       if (error) throw error
       return data
@@ -59,6 +59,12 @@ export default function CustomerPortal() {
     return 'pending'
   }
 
+  // --- COUNTDOWN LOGIC ---
+  // Calculates days between NOW and START DATE
+  const daysUntilStart = project.start_date ? differenceInDays(parseISO(project.start_date), new Date()) : 0
+  // Only show if positive and status is 'Scheduled'
+  const showCountdown = daysUntilStart > 0 && project.status === 'Scheduled'
+
   return (
     <div className="min-h-screen bg-slate-100 py-10 px-4">
       <div className="max-w-3xl mx-auto space-y-8">
@@ -69,6 +75,17 @@ export default function CustomerPortal() {
           <h1 className="text-2xl font-extrabold text-slate-900">{APP_CONFIG.appName}</h1>
           <p className="text-slate-500 text-sm">Client Portal</p>
         </div>
+
+        {/* --- COUNTDOWN BANNER (New!) --- */}
+        {showCountdown && (
+           <div className="bg-gradient-to-r from-amber-500 to-orange-600 rounded-2xl shadow-xl p-8 text-white text-center transform hover:scale-[1.02] transition-transform duration-300">
+              <div className="flex justify-center mb-3">
+                <Sparkles className="text-yellow-200 animate-pulse w-8 h-8" />
+              </div>
+              <p className="text-5xl font-black mb-2 drop-shadow-sm">{daysUntilStart} Days</p>
+              <p className="font-bold text-amber-100 uppercase tracking-widest text-sm md:text-base">Until your yard dreams come true</p>
+           </div>
+        )}
 
         {/* MAIN STATUS CARD */}
         <div className="bg-white rounded-2xl shadow-xl overflow-hidden border border-slate-200">
@@ -82,16 +99,20 @@ export default function CustomerPortal() {
             {project.customer_name && <p className="text-slate-500 mb-6">Prepared for {project.customer_name}</p>}
 
             {/* ESTIMATE DISPLAY */}
-            {project.estimate > 0 && (
-               <div className="mb-8 bg-slate-900 text-white p-4 rounded-xl flex items-center justify-between shadow-lg shadow-slate-900/10">
+            {Number(project.estimate) > 0 && (
+               <div className="mb-8 bg-slate-900 text-white p-5 rounded-xl flex flex-col md:flex-row items-center justify-between shadow-lg shadow-slate-900/10 gap-4">
                   <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center"><DollarSign size={20} className="text-amber-400" /></div>
+                    <div className="w-12 h-12 rounded-full bg-white/10 flex items-center justify-center shrink-0">
+                        <DollarSign size={24} className="text-green-400" />
+                    </div>
                     <div>
-                      <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Project Estimate</p>
-                      <p className="font-bold text-white">Quoted Price</p>
+                      <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Estimated Cost</p>
+                      <p className="font-medium text-slate-300 text-sm">Total quoted for project</p>
                     </div>
                   </div>
-                  <p className="text-2xl font-mono font-bold tracking-tight text-amber-400">${Number(project.estimate).toFixed(2)}</p>
+                  <div className="text-3xl font-mono font-bold tracking-tight text-white">
+                     ${Number(project.estimate).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}
+                  </div>
                </div>
             )}
 
@@ -146,21 +167,24 @@ export default function CustomerPortal() {
             </form>
           )}
         </div>
-        <div className="text-center text-slate-400 text-xs">&copy; {new Date().getFullYear()} {APP_CONFIG.appName}. All rights reserved.</div>
-      </div>
-    </div>
-  )
-}
 
-function TimelineItem({ status, title, desc, isLast }) {
-  let Icon = Circle
-  let colorClass = "text-slate-300 bg-white border-slate-300"
-  if (status === 'completed') { Icon = CheckCircle2; colorClass = "text-green-600 bg-green-50 border-green-200" } 
-  else if (status === 'current') { Icon = Clock; colorClass = "text-amber-600 bg-amber-50 border-amber-200 animate-pulse" }
-  return (
-    <div className={`relative pl-12 ${!isLast ? 'mb-8' : ''}`}>
-      <div className={`absolute left-0 w-8 h-8 rounded-full border-2 flex items-center justify-center z-10 ${colorClass}`}><Icon size={16} /></div>
-      <div><h4 className={`font-bold ${status === 'pending' ? 'text-slate-400' : 'text-slate-900'}`}>{title}</h4><p className="text-sm text-slate-500">{desc}</p></div>
+        {/* --- COMPANY CONTACT FOOTER (New!) --- */}
+        <div className="text-center space-y-4 py-6 border-t border-slate-200">
+          <p className="text-slate-500 font-medium">Questions? Contact us anytime.</p>
+          <div className="flex flex-col md:flex-row items-center justify-center gap-4 md:gap-8">
+            <a href="mailto:Adam@pavingstone.pro" className="flex items-center gap-2 text-slate-600 hover:text-amber-600 transition-colors font-bold bg-white px-4 py-2 rounded-lg border border-slate-200 shadow-sm">
+              <Mail size={18} /> Adam@pavingstone.pro
+            </a>
+            <a href="tel:2048036464" className="flex items-center gap-2 text-slate-600 hover:text-amber-600 transition-colors font-bold bg-white px-4 py-2 rounded-lg border border-slate-200 shadow-sm">
+              <Phone size={18} /> (204) 803-6464
+            </a>
+          </div>
+          <div className="text-slate-400 text-xs pt-4">
+            &copy; {new Date().getFullYear()} {APP_CONFIG.appName}. All rights reserved.
+          </div>
+        </div>
+
+      </div>
     </div>
   )
 }
