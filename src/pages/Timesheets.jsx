@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { format, parseISO, differenceInMinutes, addDays, startOfMonth, endOfMonth, setDate, isFuture, isBefore, setHours, setMinutes } from 'date-fns'
-import { Clock, Save, Loader2, Calendar, User, Edit2, X, Settings, MapPin, Plus, Briefcase, AlertTriangle, FileText, Download, Coffee, ArrowRightCircle } from 'lucide-react'
+import { Clock, Save, Loader2, Calendar, User, Edit2, X, Settings, MapPin, Plus, Briefcase, AlertTriangle, FileText, Download, Coffee, ArrowRightCircle, Trash2 } from 'lucide-react'
 
 export default function Timesheets() {
   const queryClient = useQueryClient()
@@ -24,7 +24,6 @@ export default function Timesheets() {
         anchor_date: '2025-01-10', 
         pay_delay: 7, 
         auto_clockout: false,
-        // NEW DEFAULTS FOR AUTOMATION
         auto_lunch: false,
         lunch_start: '12:00',
         lunch_duration: 30,
@@ -43,11 +42,7 @@ export default function Timesheets() {
     queryKey: ['time_logs', user?.id],
     enabled: !!user?.id,
     queryFn: async () => {
-      let query = supabase
-        .from('time_logs')
-        .select(`*, profiles:user_id ( full_name, email, wage ), project:projects ( name )`)
-        .order('clock_in_time', { ascending: false })
-
+      let query = supabase.from('time_logs').select(`*, profiles:user_id ( full_name, email, wage ), project:projects ( name )`).order('clock_in_time', { ascending: false })
       if (userProfile?.role !== 'admin') query = query.eq('user_id', user.id)
       const { data, error } = await query
       if (error) throw error
@@ -77,6 +72,15 @@ export default function Timesheets() {
     onSuccess: () => { queryClient.invalidateQueries(['time_logs']); setEditingLog(null) }
   })
 
+  // RESTORED: Delete Mutation
+  const deleteLogMutation = useMutation({
+    mutationFn: async (id) => {
+      const { error } = await supabase.from('time_logs').delete().eq('id', id)
+      if (error) throw error
+    },
+    onSuccess: () => { queryClient.invalidateQueries(['time_logs']) }
+  })
+
   const saveSettingsMutation = useMutation({
     mutationFn: async (newConfig) => {
       const { error } = await supabase.from('app_settings').upsert({ setting_key: 'payroll_config', setting_value: newConfig }, { onConflict: 'setting_key' })
@@ -92,34 +96,24 @@ export default function Timesheets() {
     const end = parseISO(clockOut)
     let totalMins = differenceInMinutes(end, start)
 
-    // Check Auto-Lunch Rule
     if (payrollConfig?.auto_lunch) {
       const [lunchHour, lunchMin] = (payrollConfig.lunch_start || '12:00').split(':').map(Number)
-      
-      // Define Lunch Window for that specific day
       const lunchStart = setMinutes(setHours(start, lunchHour), lunchMin)
       const lunchEnd = setMinutes(lunchStart, lunchMin + (parseInt(payrollConfig.lunch_duration) || 30))
 
-      // If shift covers the ENTIRE lunch window (Starts before lunch, Ends after lunch)
       if (isBefore(start, lunchStart) && isBefore(lunchEnd, end)) {
         totalMins -= (parseInt(payrollConfig.lunch_duration) || 0)
       }
     }
-    return Math.max(0, totalMins) // Ensure no negative time
+    return Math.max(0, totalMins)
   }
 
-  // --- HELPER: Start Time Adjuster (Auto-Start) ---
+  // --- HELPER: Start Time Adjuster ---
   const getAdjustedStartTime = (isoString) => {
-    // Only adjust if enabled
     if (!payrollConfig?.auto_start_adjust || !payrollConfig?.official_start_time) return isoString
-    
     const inputTime = parseISO(isoString)
     const [targetHour, targetMin] = payrollConfig.official_start_time.split(':').map(Number)
-    
-    // Define Official Start for that specific day
     const officialStart = setMinutes(setHours(inputTime, targetHour), targetMin)
-
-    // If clocked in BEFORE official start (e.g. 6:50 vs 7:00), snap to 7:00
     if (isBefore(inputTime, officialStart)) {
       return officialStart.toISOString()
     }
@@ -166,33 +160,32 @@ export default function Timesheets() {
     }, {})
   }, [logs, payrollConfig])
 
-  // --- REPORT GENERATOR ---
   const generateReport = (periodKey) => {
     const periodData = groupedLogs[periodKey]
     if (!periodData) return []
-    
     const summary = periodData.logs.reduce((acc, log) => {
       if (!log.clock_out_time) return acc
       const name = log.profiles?.full_name || 'Unknown'
-      
-      // UPDATED: Use Smart Calculator for Report Totals
       const mins = calculatePaidMinutes(log.clock_in_time, log.clock_out_time)
-      
       if (!acc[name]) acc[name] = { name, totalMins: 0, wage: log.profiles?.wage || 0 }
       acc[name].totalMins += mins
       return acc
     }, {})
-
     return Object.values(summary).sort((a, b) => a.name.localeCompare(b.name))
+  }
+
+  const handleDeleteLog = (id) => {
+    if (window.confirm("Are you sure you want to permanently delete this log?")) {
+      deleteLogMutation.mutate(id)
+    }
   }
 
   const handleFormSubmit = (e) => {
     e.preventDefault();
     const formData = new FormData(e.target);
-    const rawStart = new Date(formData.get('clock_in')).toISOString() // Convert to ISO immediately
+    const rawStart = new Date(formData.get('clock_in')).toISOString()
     const end = formData.get('clock_out') ? new Date(formData.get('clock_out')).toISOString() : null
     
-    // UPDATED: Apply Auto-Start Adjustment Logic
     const start = getAdjustedStartTime(rawStart)
 
     if (isFuture(parseISO(start))) return alert("Error: Clock In time cannot be in the future.")
@@ -262,12 +255,11 @@ export default function Timesheets() {
                   <th className="p-4 text-xs font-bold text-slate-400 uppercase hidden md:table-cell">Date</th>
                   <th className="p-4 text-xs font-bold text-slate-400 uppercase">In / Out</th>
                   <th className="p-4 text-xs font-bold text-slate-400 uppercase">Total (Paid)</th>
-                  {userProfile?.role === 'admin' && <th className="p-4 text-xs font-bold text-slate-400 uppercase text-right">Edit</th>}
+                  {userProfile?.role === 'admin' && <th className="p-4 text-xs font-bold text-slate-400 uppercase text-right">Actions</th>}
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {group.logs.map(log => {
-                   // UPDATED: Calculate Paid Minutes (Net of Lunch)
                    const paidMinutes = calculatePaidMinutes(log.clock_in_time, log.clock_out_time)
                    const hours = Math.floor(paidMinutes / 60)
                    const mins = paidMinutes % 60
@@ -286,23 +278,57 @@ export default function Timesheets() {
                         </div>
                       </td>
                       <td className="p-4 text-slate-600 text-sm font-mono hidden md:table-cell">{format(parseISO(log.clock_in_time), 'EEE, MMM d')}</td>
+                      
+                      {/* RESTORED: GPS Links in this column */}
                       <td className="p-4 text-sm">
+                        <div className="md:hidden text-xs text-slate-400 mb-1">
+                            {format(parseISO(log.clock_in_time), 'MMM d')}
+                        </div>
                         <span className="text-green-700 font-bold">{format(parseISO(log.clock_in_time), 'h:mm a')}</span>
+                        {log.gps_in_lat && (
+                          <a href={`https://www.google.com/maps?q=${log.gps_in_lat},${log.gps_in_long}`} target="_blank" rel="noreferrer" className="inline-block ml-1 text-slate-300 hover:text-blue-500">
+                            <MapPin size={12} />
+                          </a>
+                        )}
                         <span className="text-slate-300 mx-2">-</span>
-                        {log.clock_out_time ? <span className="text-slate-700">{format(parseISO(log.clock_out_time), 'h:mm a')}</span> : <span className="text-amber-600 font-bold text-xs uppercase bg-amber-50 px-2 py-0.5 rounded">Active</span>}
+                        {log.clock_out_time ? (
+                          <>
+                            <span className="text-slate-700">{format(parseISO(log.clock_out_time), 'h:mm a')}</span>
+                            {log.gps_out_lat && (
+                              <a href={`https://www.google.com/maps?q=${log.gps_out_lat},${log.gps_out_long}`} target="_blank" rel="noreferrer" className="inline-block ml-1 text-slate-300 hover:text-blue-500">
+                                <MapPin size={12} />
+                              </a>
+                            )}
+                          </>
+                        ) : (
+                          <span className="text-amber-600 font-bold text-xs uppercase bg-amber-50 px-2 py-0.5 rounded">Active</span>
+                        )}
                       </td>
+
                       <td className="p-4 font-bold text-slate-800 text-sm">
                         {log.clock_out_time ? (
                           <div className="flex items-center gap-2">
                             <span>{`${hours}h ${mins}m`}</span>
-                            {/* Visual Indicator if Lunch was deducted */}
                             {differenceInMinutes(parseISO(log.clock_out_time), parseISO(log.clock_in_time)) > paidMinutes && (
                               <Coffee size={14} className="text-amber-500" title="Lunch Auto-Deducted"/>
                             )}
                           </div>
                         ) : '-'}
                       </td>
-                      {userProfile?.role === 'admin' && <td className="p-4 text-right"><button onClick={() => setEditingLog(log)} className="text-slate-300 hover:text-blue-600"><Edit2 size={16} /></button></td>}
+                      
+                      {/* RESTORED: Delete Button */}
+                      {userProfile?.role === 'admin' && (
+                        <td className="p-4 text-right">
+                          <div className="flex items-center justify-end gap-2">
+                            <button onClick={() => setEditingLog(log)} className="text-slate-300 hover:text-blue-600 transition-colors" title="Edit">
+                              <Edit2 size={16} />
+                            </button>
+                            <button onClick={() => handleDeleteLog(log.id)} className="text-slate-300 hover:text-red-500 transition-colors" title="Delete">
+                              <Trash2 size={16} />
+                            </button>
+                          </div>
+                        </td>
+                      )}
                     </tr>
                    )
                 })}
@@ -323,13 +349,12 @@ export default function Timesheets() {
               </div>
               <button onClick={() => setReportPeriod(null)}><X className="text-slate-400 hover:text-slate-700"/></button>
             </div>
-            
             <div className="overflow-y-auto flex-1">
               <table className="w-full text-left border-collapse">
                 <thead className="bg-slate-50 border-b border-slate-200">
                   <tr>
                     <th className="p-3 text-xs font-bold text-slate-500 uppercase">Employee</th>
-                    <th className="p-3 text-xs font-bold text-slate-500 uppercase text-right">Total Hours</th>
+                    <th className="p-3 text-xs font-bold text-slate-500 uppercase text-right">Total Hours (Net)</th>
                     <th className="p-3 text-xs font-bold text-slate-500 uppercase text-right">Wage</th>
                     <th className="p-3 text-xs font-bold text-slate-500 uppercase text-right">Est. Pay</th>
                   </tr>
@@ -351,9 +376,7 @@ export default function Timesheets() {
               </table>
             </div>
             <div className="mt-6 pt-4 border-t border-slate-100 flex justify-end">
-              <button onClick={() => window.print()} className="flex items-center gap-2 bg-slate-900 text-white px-4 py-2 rounded font-bold hover:bg-slate-800">
-                <Download size={18}/> Print / PDF
-              </button>
+              <button onClick={() => window.print()} className="flex items-center gap-2 bg-slate-900 text-white px-4 py-2 rounded font-bold hover:bg-slate-800"><Download size={18}/> Print / PDF</button>
             </div>
           </div>
         </div>
@@ -372,7 +395,6 @@ export default function Timesheets() {
                 anchor_date: formData.get('anchor_date'),
                 pay_delay: formData.get('pay_delay'),
                 auto_clockout: formData.get('auto_clockout') === 'on',
-                // NEW: AUTOMATION SETTINGS
                 auto_lunch: formData.get('auto_lunch') === 'on',
                 lunch_start: formData.get('lunch_start'),
                 lunch_duration: formData.get('lunch_duration'),
@@ -406,7 +428,7 @@ export default function Timesheets() {
                   </div>
                 </div>
 
-                {/* 2. New Automation Rules */}
+                {/* 2. Automation Rules */}
                 <div className="space-y-4">
                   <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Automation Rules</h4>
                   
