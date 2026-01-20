@@ -3,7 +3,7 @@ import { Outlet, Link, useLocation } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { 
   LayoutDashboard, Folder, Users, LogOut, Book, Calendar, UserCog, 
-  Menu, X, Clock // <--- 1. ADDED CLOCK ICON
+  Menu, X, Clock 
 } from 'lucide-react'
 
 // 1. IMPORT CONFIG (For White-Labeling)
@@ -109,13 +109,11 @@ export default function Layout() {
             </Link>
           )}
 
-          {/* --- 2. NEW TIMESHEETS LINK (ADMIN ONLY) --- */}
-          {userRole === 'admin' && (
-            <Link to="/timesheets" className={linkClass('/timesheets')}>
-              <Clock size={20} />
-              Timesheets
-            </Link>
-          )}
+          {/* --- TIMESHEETS LINK (VISIBLE TO EVERYONE NOW) --- */}
+          <Link to="/timesheets" className={linkClass('/timesheets')}>
+            <Clock size={20} />
+            Timesheets
+          </Link>
 
           <Link to="/sops" className={linkClass('/sops')}>
             <Book size={20} />
