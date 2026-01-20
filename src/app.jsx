@@ -10,6 +10,7 @@ import Customers from './pages/Customers'
 import NewProject from './pages/NewProject'
 import ProjectDetails from './pages/ProjectDetails'
 import SOPs from './pages/SOPs'
+import SOPEditor from './pages/SOPEditor' // <--- NEW IMPORT
 import Calendar from './pages/Calendar'
 import Team from './pages/Team'
 import CustomerPortal from './pages/CustomerPortal'
@@ -33,7 +34,13 @@ export default function App() {
               <Route path="/projects/:id" element={<ProjectDetails />} />
               <Route path="/calendar" element={<Calendar />} />
               <Route path="/customers" element={<Customers />} />
+              
+              {/* --- NEW SOP ROUTES --- */}
               <Route path="/sops" element={<SOPs />} />
+              <Route path="/sops/new" element={<SOPEditor />} />
+              <Route path="/sops/:id" element={<SOPEditor />} />
+              {/* ---------------------- */}
+
               <Route path="/team" element={<Team />} />
             </Route>
 

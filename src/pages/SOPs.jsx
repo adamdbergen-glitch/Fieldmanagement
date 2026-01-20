@@ -1,10 +1,12 @@
 import React, { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
-import { Book, Search, Plus, X, Trash2, ChevronRight, ListChecks } from 'lucide-react'
+import { Book, Search, Plus, X, Trash2, ChevronRight, ListChecks, Edit } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import { can, PERMISSIONS } from '../lib/permissions'
 
 export default function SOPs() {
+  const navigate = useNavigate() // <--- Added for navigation
   const { userProfile } = useAuth()
   const [sops, setSops] = useState([])
   const [loading, setLoading] = useState(true)
@@ -89,7 +91,7 @@ export default function SOPs() {
 
         <div className="flex gap-3 w-full md:w-auto">
           {/* SEARCH BAR */}
-          <div className="relative flex-1 md:w-72">
+          <div className="relative flex-1 md:w-64">
             <Search className="absolute left-3 top-3 text-slate-400" size={18} />
             <input 
               type="text" 
@@ -99,6 +101,14 @@ export default function SOPs() {
               onChange={(e) => setSearchTerm(e.target.value)}
             />
           </div>
+
+          {/* CREATE BUTTON (New!) */}
+          <button 
+            onClick={() => navigate('/sops/new')}
+            className="bg-amber-500 hover:bg-amber-600 text-white font-bold py-2 px-4 rounded-lg flex items-center gap-2 shadow-sm transition-all"
+          >
+            <Plus size={20} /> <span className="hidden md:inline">Create SOP</span>
+          </button>
         </div>
       </div>
 
@@ -110,6 +120,7 @@ export default function SOPs() {
           <div className="col-span-3 text-center py-20 bg-slate-50 rounded-xl border-2 border-dashed border-slate-200">
             <Book size={48} className="mx-auto text-slate-300 mb-4" />
             <p className="text-slate-500">No guides found.</p>
+            <button onClick={() => navigate('/sops/new')} className="text-amber-600 font-bold text-sm mt-2 hover:underline">Create your first SOP</button>
           </div>
         ) : (
           filteredSops.map((sop) => (
@@ -141,15 +152,29 @@ export default function SOPs() {
                   Read Manual <ChevronRight size={16} />
                 </span>
                 
-                {/* Admin Delete Button */}
-                {can(userProfile?.role, PERMISSIONS.CAN_DELETE_PROJECT) && (
+                {/* Admin Actions */}
+                <div className="flex gap-1">
+                  {/* EDIT BUTTON (New!) */}
                   <button 
-                    onClick={(e) => handleDelete(sop.id, e)}
-                    className="text-slate-300 hover:text-red-500 p-2 hover:bg-red-50 rounded transition-colors"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      navigate(`/sops/${sop.id}`)
+                    }}
+                    className="text-slate-300 hover:text-blue-500 p-2 hover:bg-blue-50 rounded transition-colors"
                   >
-                    <Trash2 size={16} />
+                    <Edit size={16} />
                   </button>
-                )}
+
+                  {/* DELETE BUTTON */}
+                  {can(userProfile?.role, PERMISSIONS.CAN_DELETE_PROJECT) && (
+                    <button 
+                      onClick={(e) => handleDelete(sop.id, e)}
+                      className="text-slate-300 hover:text-red-500 p-2 hover:bg-red-50 rounded transition-colors"
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
           ))
@@ -159,7 +184,7 @@ export default function SOPs() {
       {/* READING MODAL (The Reference Manual View) */}
       {selectedSop && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col overflow-hidden">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col overflow-hidden animate-in zoom-in-95 duration-200">
             
             {/* Modal Header */}
             <div className="px-8 py-6 border-b border-slate-100 flex justify-between items-start bg-slate-50">
@@ -194,7 +219,7 @@ export default function SOPs() {
                            </h4>
                         </div>
                       ) : (
-                        // STANDARD ITEM ROW (Bullet point style)
+                        // STANDARD ITEM ROW
                         <div className="flex gap-4 items-start py-1 pl-2">
                           <div className="shrink-0 mt-2">
                             <div className="w-1.5 h-1.5 rounded-full bg-slate-300"></div>
