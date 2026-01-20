@@ -10,9 +10,10 @@ import Customers from './pages/Customers'
 import NewProject from './pages/NewProject'
 import ProjectDetails from './pages/ProjectDetails'
 import SOPs from './pages/SOPs'
-import SOPEditor from './pages/SOPEditor' // <--- NEW IMPORT
+import SOPEditor from './pages/SOPEditor'
 import Calendar from './pages/Calendar'
 import Team from './pages/Team'
+import Timesheets from './pages/Timesheets' // <--- 1. NEW IMPORT
 import CustomerPortal from './pages/CustomerPortal'
 
 // Create the client for data fetching
@@ -35,13 +36,14 @@ export default function App() {
               <Route path="/calendar" element={<Calendar />} />
               <Route path="/customers" element={<Customers />} />
               
-              {/* --- NEW SOP ROUTES --- */}
+              {/* SOP ROUTES */}
               <Route path="/sops" element={<SOPs />} />
               <Route path="/sops/new" element={<SOPEditor />} />
               <Route path="/sops/:id" element={<SOPEditor />} />
-              {/* ---------------------- */}
 
+              {/* TEAM & TIME ROUTES */}
               <Route path="/team" element={<Team />} />
+              <Route path="/timesheets" element={<Timesheets />} /> {/* <--- 2. NEW ROUTE */}
             </Route>
 
             <Route path="*" element={<Navigate to="/" replace />} />
