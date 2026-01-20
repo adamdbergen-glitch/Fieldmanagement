@@ -2,16 +2,16 @@ import React, { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
-import { format, parseISO, addDays, differenceInCalendarDays, startOfMonth, endOfMonth, setDate, differenceInMinutes } from 'date-fns' // <--- Updated imports
-import { DollarSign, Clock, Calendar } from 'lucide-react' // <--- Updated icons
+import { format, parseISO, addDays, differenceInCalendarDays, startOfMonth, endOfMonth, setDate, differenceInMinutes, setHours, setMinutes, isBefore } from 'date-fns' // <--- Added logic imports
+import { DollarSign, Clock, Calendar } from 'lucide-react'
 import TimeClock from '../components/TimeClock'
 
 export default function Dashboard() {
-  const { user, userProfile } = useAuth() // Added 'user' to get ID reliably
+  const { user, userProfile } = useAuth()
   const [projects, setProjects] = useState([])
   const [loading, setLoading] = useState(true)
   
-  // NEW: Payroll Stats State
+  // Payroll Stats State
   const [stats, setStats] = useState({ hours: 0, daysUntilPay: 0, payDate: null, periodLabel: 'Loading...' })
 
   // 1. FETCH ACTIVE PROJECTS (Existing Logic)
@@ -38,16 +38,16 @@ export default function Dashboard() {
     }
   }
 
-  // 2. NEW: FETCH PAYROLL DATA (The Widget Logic)
+  // 2. FETCH PAYROLL DATA (Updated with Smart Calc)
   useEffect(() => {
     async function fetchPayrollData() {
       if (!user) return
 
-      // A. Get Payroll Settings
+      // A. Get Settings
       const { data: settings } = await supabase.from('app_settings').select('setting_value').eq('setting_key', 'payroll_config').single()
-      const config = settings?.setting_value || { frequency: 'biweekly', anchor_date: '2025-01-10', pay_delay: 7 }
+      const config = settings?.setting_value || { frequency: 'biweekly', anchor_date: '2025-01-10', pay_delay: 7, auto_lunch: false }
 
-      // B. Calculate Current Period Range based on TODAY
+      // B. Calculate Period
       const today = new Date()
       let start, end
       
@@ -58,7 +58,6 @@ export default function Dashboard() {
         if (day <= 15) { start = startOfMonth(today); end = setDate(today, 15); }
         else { start = setDate(today, 16); end = endOfMonth(today); }
       } else {
-        // Weekly / Bi-Weekly Logic
         const anchor = parseISO(config.anchor_date)
         const freqDays = config.frequency === 'weekly' ? 7 : 14 
         const diffTime = today.getTime() - anchor.getTime()
@@ -68,20 +67,37 @@ export default function Dashboard() {
         end = addDays(start, freqDays - 1)
       }
 
-      // C. Calculate Pay Date (End of Period + Pay Delay)
+      // C. Calculate Pay Date
       const payDate = addDays(end, parseInt(config.pay_delay || 7))
       const daysUntil = differenceInCalendarDays(payDate, today)
 
-      // D. Fetch User's Hours for THIS Period
+      // D. Fetch Logs
       const { data: logs } = await supabase.from('time_logs')
         .select('clock_in_time, clock_out_time')
         .eq('user_id', user.id)
         .gte('clock_in_time', start.toISOString())
         .lte('clock_in_time', end.toISOString())
       
+      // E. Calculate Total Minutes (Subtract Lunch if enabled)
       const totalMinutes = logs?.reduce((sum, log) => {
         if (!log.clock_out_time) return sum
-        return sum + differenceInMinutes(parseISO(log.clock_out_time), parseISO(log.clock_in_time))
+        
+        const shiftStart = parseISO(log.clock_in_time)
+        const shiftEnd = parseISO(log.clock_out_time)
+        let mins = differenceInMinutes(shiftEnd, shiftStart)
+
+        // Auto-Lunch Logic
+        if (config.auto_lunch) {
+          const [lunchHour, lunchMin] = (config.lunch_start || '12:00').split(':').map(Number)
+          const lunchStart = setMinutes(setHours(shiftStart, lunchHour), lunchMin)
+          const lunchEnd = setMinutes(lunchStart, lunchMin + (parseInt(config.lunch_duration) || 30))
+
+          if (isBefore(shiftStart, lunchStart) && isBefore(lunchEnd, shiftEnd)) {
+            mins -= (parseInt(config.lunch_duration) || 0)
+          }
+        }
+        
+        return sum + Math.max(0, mins)
       }, 0) || 0
 
       setStats({
@@ -129,14 +145,11 @@ export default function Dashboard() {
 
       {/* 2. TIME CLOCK & PAYROLL WIDGET */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Time Clock */}
         <div className="lg:col-span-1">
           <TimeClock />
         </div>
         
-        {/* NEW: PAYROLL WIDGET (Replaces old Stats Card) */}
         <div className="lg:col-span-2 bg-gradient-to-br from-slate-900 to-slate-800 rounded-xl p-6 text-white shadow-sm border border-slate-700 flex flex-col justify-between relative overflow-hidden">
-          {/* Decorative Background */}
           <div className="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-full blur-3xl -mr-10 -mt-10"></div>
           
           <div className="flex justify-between items-start z-10">
@@ -159,7 +172,7 @@ export default function Dashboard() {
           <div className="mt-6 flex items-end justify-between z-10">
             <div>
               <p className="text-5xl font-black text-white tracking-tight">{stats.hours}</p>
-              <p className="text-slate-400 text-sm font-medium mt-1">Hours Worked</p>
+              <p className="text-slate-400 text-sm font-medium mt-1">Paid Hours (Est.)</p>
             </div>
             
             <div className="text-right">
@@ -190,8 +203,6 @@ export default function Dashboard() {
           <div className="divide-y divide-slate-100">
             {projects.map((proj) => (
               <div key={proj.id} className="p-6 hover:bg-slate-50 transition-colors flex flex-col md:flex-row md:items-center justify-between gap-6 group">
-                
-                {/* Project Info */}
                 <div className="flex-1">
                   <div className="flex items-center gap-3 mb-1">
                     <h3 className="text-lg font-bold text-slate-900 group-hover:text-blue-600 transition-colors">
@@ -206,8 +217,6 @@ export default function Dashboard() {
                     {proj.name || 'No description provided'}
                   </p>
                 </div>
-
-                {/* Project Details (Dates) */}
                 <div className="flex items-center gap-6 text-sm text-slate-600">
                   <div className="text-right">
                     <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Start Date</p>
@@ -216,8 +225,6 @@ export default function Dashboard() {
                     </p>
                   </div>
                 </div>
-
-                {/* Action Button */}
                 <div>
                   <Link 
                     to={`/projects/${proj.id}`}
@@ -226,7 +233,6 @@ export default function Dashboard() {
                     View Details
                   </Link>
                 </div>
-
               </div>
             ))}
           </div>

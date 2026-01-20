@@ -2,8 +2,8 @@ import React, { useState, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
-import { format, parseISO, differenceInMinutes, addDays, startOfMonth, endOfMonth, setDate, isFuture, isBefore } from 'date-fns'
-import { Clock, Save, Loader2, Calendar, User, Edit2, X, Settings, MapPin, Plus, Briefcase, AlertTriangle, FileText, Download } from 'lucide-react'
+import { format, parseISO, differenceInMinutes, addDays, startOfMonth, endOfMonth, setDate, isFuture, isBefore, setHours, setMinutes } from 'date-fns'
+import { Clock, Save, Loader2, Calendar, User, Edit2, X, Settings, MapPin, Plus, Briefcase, AlertTriangle, FileText, Download, Coffee, ArrowRightCircle } from 'lucide-react'
 
 export default function Timesheets() {
   const queryClient = useQueryClient()
@@ -12,8 +12,6 @@ export default function Timesheets() {
   const [editingLog, setEditingLog] = useState(null)
   const [isCreating, setIsCreating] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
-  
-  // NEW: State for Payroll Report Modal
   const [reportPeriod, setReportPeriod] = useState(null)
 
   // --- 1. FETCH PAYROLL SETTINGS ---
@@ -23,9 +21,15 @@ export default function Timesheets() {
       const { data } = await supabase.from('app_settings').select('setting_value').eq('setting_key', 'payroll_config').single()
       return data?.setting_value || { 
         frequency: 'biweekly', 
-        anchor_date: '2025-01-10', // Default start
-        pay_delay: 7, // NEW: Days between period end and pay day
-        auto_clockout: false 
+        anchor_date: '2025-01-10', 
+        pay_delay: 7, 
+        auto_clockout: false,
+        // NEW DEFAULTS FOR AUTOMATION
+        auto_lunch: false,
+        lunch_start: '12:00',
+        lunch_duration: 30,
+        auto_start_adjust: false,
+        official_start_time: '07:00'
       }
     }
   })
@@ -81,6 +85,47 @@ export default function Timesheets() {
     onSuccess: () => { queryClient.invalidateQueries(['payroll_config']); setShowSettings(false) }
   })
 
+  // --- HELPER: SMART HOURS CALCULATOR (Auto-Lunch) ---
+  const calculatePaidMinutes = (clockIn, clockOut) => {
+    if (!clockIn || !clockOut) return 0
+    const start = parseISO(clockIn)
+    const end = parseISO(clockOut)
+    let totalMins = differenceInMinutes(end, start)
+
+    // Check Auto-Lunch Rule
+    if (payrollConfig?.auto_lunch) {
+      const [lunchHour, lunchMin] = (payrollConfig.lunch_start || '12:00').split(':').map(Number)
+      
+      // Define Lunch Window for that specific day
+      const lunchStart = setMinutes(setHours(start, lunchHour), lunchMin)
+      const lunchEnd = setMinutes(lunchStart, lunchMin + (parseInt(payrollConfig.lunch_duration) || 30))
+
+      // If shift covers the ENTIRE lunch window (Starts before lunch, Ends after lunch)
+      if (isBefore(start, lunchStart) && isBefore(lunchEnd, end)) {
+        totalMins -= (parseInt(payrollConfig.lunch_duration) || 0)
+      }
+    }
+    return Math.max(0, totalMins) // Ensure no negative time
+  }
+
+  // --- HELPER: Start Time Adjuster (Auto-Start) ---
+  const getAdjustedStartTime = (isoString) => {
+    // Only adjust if enabled
+    if (!payrollConfig?.auto_start_adjust || !payrollConfig?.official_start_time) return isoString
+    
+    const inputTime = parseISO(isoString)
+    const [targetHour, targetMin] = payrollConfig.official_start_time.split(':').map(Number)
+    
+    // Define Official Start for that specific day
+    const officialStart = setMinutes(setHours(inputTime, targetHour), targetMin)
+
+    // If clocked in BEFORE official start (e.g. 6:50 vs 7:00), snap to 7:00
+    if (isBefore(inputTime, officialStart)) {
+      return officialStart.toISOString()
+    }
+    return isoString
+  }
+
   // --- HELPER: Pay Period Logic ---
   const getPeriodData = (dateString) => {
     if (!payrollConfig) return { label: 'Loading...', start: null, end: null }
@@ -103,7 +148,6 @@ export default function Timesheets() {
       end = addDays(start, freqDays - 1)
     }
     
-    // NEW: Calculate Pay Date using Pay Delay setting
     const payDate = addDays(end, parseInt(payrollConfig.pay_delay || 7))
 
     return {
@@ -113,7 +157,6 @@ export default function Timesheets() {
     }
   }
 
-  // Group Logs
   const groupedLogs = useMemo(() => {
     return logs?.reduce((groups, log) => {
       const { label, key, payDate } = getPeriodData(log.clock_in_time)
@@ -131,7 +174,9 @@ export default function Timesheets() {
     const summary = periodData.logs.reduce((acc, log) => {
       if (!log.clock_out_time) return acc
       const name = log.profiles?.full_name || 'Unknown'
-      const mins = differenceInMinutes(parseISO(log.clock_out_time), parseISO(log.clock_in_time))
+      
+      // UPDATED: Use Smart Calculator for Report Totals
+      const mins = calculatePaidMinutes(log.clock_in_time, log.clock_out_time)
       
       if (!acc[name]) acc[name] = { name, totalMins: 0, wage: log.profiles?.wage || 0 }
       acc[name].totalMins += mins
@@ -144,15 +189,19 @@ export default function Timesheets() {
   const handleFormSubmit = (e) => {
     e.preventDefault();
     const formData = new FormData(e.target);
-    const start = new Date(formData.get('clock_in'))
-    const end = formData.get('clock_out') ? new Date(formData.get('clock_out')) : null
+    const rawStart = new Date(formData.get('clock_in')).toISOString() // Convert to ISO immediately
+    const end = formData.get('clock_out') ? new Date(formData.get('clock_out')).toISOString() : null
     
-    if (isFuture(start)) return alert("Error: Clock In time cannot be in the future.")
-    if (end && isBefore(end, start)) return alert("Error: Negative time detected.")
+    // UPDATED: Apply Auto-Start Adjustment Logic
+    const start = getAdjustedStartTime(rawStart)
+
+    if (isFuture(parseISO(start))) return alert("Error: Clock In time cannot be in the future.")
+    if (end && isFuture(parseISO(end))) return alert("Error: Clock Out time cannot be in the future.")
+    if (end && isBefore(parseISO(end), parseISO(start))) return alert("Error: Negative time detected.")
 
     const payload = {
-      clock_in_time: start.toISOString(),
-      clock_out_time: end ? end.toISOString() : null,
+      clock_in_time: start,
+      clock_out_time: end,
       admin_notes: formData.get('notes'),
       project_id: formData.get('project_id')
     }
@@ -188,7 +237,6 @@ export default function Timesheets() {
                 <h3 className="font-bold text-slate-700 flex items-center gap-2">
                   <Calendar size={18} className="text-amber-500"/> {group.label}
                 </h3>
-                {/* NEW: Pay Day Display */}
                 <p className="text-xs text-slate-400 font-bold uppercase tracking-widest mt-1 ml-6">
                   Pay Day: {format(group.payDate, 'MMM d, yyyy')}
                 </p>
@@ -196,7 +244,6 @@ export default function Timesheets() {
               
               <div className="flex items-center gap-3">
                 <span className="text-xs font-bold uppercase text-slate-400 bg-slate-200 px-2 py-1 rounded">{group.logs.length} Shifts</span>
-                {/* NEW: Report Button */}
                 {userProfile?.role === 'admin' && (
                   <button 
                     onClick={() => setReportPeriod(key)}
@@ -214,15 +261,17 @@ export default function Timesheets() {
                   <th className="p-4 text-xs font-bold text-slate-400 uppercase">Person / Project</th>
                   <th className="p-4 text-xs font-bold text-slate-400 uppercase hidden md:table-cell">Date</th>
                   <th className="p-4 text-xs font-bold text-slate-400 uppercase">In / Out</th>
-                  <th className="p-4 text-xs font-bold text-slate-400 uppercase">Total</th>
+                  <th className="p-4 text-xs font-bold text-slate-400 uppercase">Total (Paid)</th>
                   {userProfile?.role === 'admin' && <th className="p-4 text-xs font-bold text-slate-400 uppercase text-right">Edit</th>}
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {group.logs.map(log => {
-                   const durationMinutes = log.clock_out_time ? differenceInMinutes(parseISO(log.clock_out_time), parseISO(log.clock_in_time)) : 0
-                   const hours = Math.floor(durationMinutes / 60)
-                   const mins = durationMinutes % 60
+                   // UPDATED: Calculate Paid Minutes (Net of Lunch)
+                   const paidMinutes = calculatePaidMinutes(log.clock_in_time, log.clock_out_time)
+                   const hours = Math.floor(paidMinutes / 60)
+                   const mins = paidMinutes % 60
+                   
                    return (
                     <tr key={log.id} className="hover:bg-slate-50/50 transition-colors">
                       <td className="p-4">
@@ -242,7 +291,17 @@ export default function Timesheets() {
                         <span className="text-slate-300 mx-2">-</span>
                         {log.clock_out_time ? <span className="text-slate-700">{format(parseISO(log.clock_out_time), 'h:mm a')}</span> : <span className="text-amber-600 font-bold text-xs uppercase bg-amber-50 px-2 py-0.5 rounded">Active</span>}
                       </td>
-                      <td className="p-4 font-bold text-slate-800 text-sm">{log.clock_out_time ? `${hours}h ${mins}m` : '-'}</td>
+                      <td className="p-4 font-bold text-slate-800 text-sm">
+                        {log.clock_out_time ? (
+                          <div className="flex items-center gap-2">
+                            <span>{`${hours}h ${mins}m`}</span>
+                            {/* Visual Indicator if Lunch was deducted */}
+                            {differenceInMinutes(parseISO(log.clock_out_time), parseISO(log.clock_in_time)) > paidMinutes && (
+                              <Coffee size={14} className="text-amber-500" title="Lunch Auto-Deducted"/>
+                            )}
+                          </div>
+                        ) : '-'}
+                      </td>
                       {userProfile?.role === 'admin' && <td className="p-4 text-right"><button onClick={() => setEditingLog(log)} className="text-slate-300 hover:text-blue-600"><Edit2 size={16} /></button></td>}
                     </tr>
                    )
@@ -303,7 +362,7 @@ export default function Timesheets() {
       {/* --- SETTINGS MODAL --- */}
       {showSettings && (
         <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md p-6">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg p-6 max-h-[90vh] overflow-y-auto">
             <h3 className="text-xl font-bold text-slate-900 mb-4">Payroll Config</h3>
             <form onSubmit={(e) => {
               e.preventDefault();
@@ -311,36 +370,86 @@ export default function Timesheets() {
               saveSettingsMutation.mutate({ 
                 frequency: formData.get('frequency'), 
                 anchor_date: formData.get('anchor_date'),
-                pay_delay: formData.get('pay_delay'), // NEW
-                auto_clockout: formData.get('auto_clockout') === 'on'
+                pay_delay: formData.get('pay_delay'),
+                auto_clockout: formData.get('auto_clockout') === 'on',
+                // NEW: AUTOMATION SETTINGS
+                auto_lunch: formData.get('auto_lunch') === 'on',
+                lunch_start: formData.get('lunch_start'),
+                lunch_duration: formData.get('lunch_duration'),
+                auto_start_adjust: formData.get('auto_start_adjust') === 'on',
+                official_start_time: formData.get('official_start_time')
               })
             }}>
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-bold text-slate-700 mb-1">Frequency</label>
-                  <select name="frequency" defaultValue={payrollConfig?.frequency} className="w-full p-2 border rounded">
-                    <option value="weekly">Weekly</option>
-                    <option value="biweekly">Bi-Weekly</option>
-                    <option value="semimonthly">Semi-Monthly</option>
-                    <option value="monthly">Monthly</option>
-                  </select>
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-bold text-slate-700 mb-1">Cycle Start</label>
-                    <input type="date" name="anchor_date" defaultValue={payrollConfig?.anchor_date} className="w-full p-2 border rounded" />
+              <div className="space-y-6">
+                
+                {/* 1. General Settings */}
+                <div className="space-y-3 pb-4 border-b border-slate-100">
+                  <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Pay Cycles</h4>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-sm font-bold text-slate-700">Frequency</label>
+                      <select name="frequency" defaultValue={payrollConfig?.frequency} className="w-full p-2 border rounded">
+                        <option value="weekly">Weekly</option>
+                        <option value="biweekly">Bi-Weekly</option>
+                        <option value="semimonthly">Semi-Monthly</option>
+                        <option value="monthly">Monthly</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-bold text-slate-700">Start Date</label>
+                      <input type="date" name="anchor_date" defaultValue={payrollConfig?.anchor_date} className="w-full p-2 border rounded" />
+                    </div>
                   </div>
                   <div>
-                    <label className="block text-sm font-bold text-slate-700 mb-1">Pay Delay (Days)</label>
+                    <label className="block text-sm font-bold text-slate-700">Pay Delay (Days)</label>
                     <input type="number" name="pay_delay" defaultValue={payrollConfig?.pay_delay || 7} className="w-full p-2 border rounded" />
                   </div>
                 </div>
-                <div className="flex items-center gap-2 pt-2">
-                  <input type="checkbox" name="auto_clockout" defaultChecked={payrollConfig?.auto_clockout} className="w-5 h-5 accent-amber-500" />
-                  <label className="text-sm font-bold text-slate-700">Auto-Close @ 23:59</label>
+
+                {/* 2. New Automation Rules */}
+                <div className="space-y-4">
+                  <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Automation Rules</h4>
+                  
+                  {/* Auto-Lunch */}
+                  <div className="bg-slate-50 p-3 rounded-lg border border-slate-200">
+                    <div className="flex items-center gap-2 mb-2">
+                      <input type="checkbox" name="auto_lunch" defaultChecked={payrollConfig?.auto_lunch} className="w-4 h-4 accent-amber-500" />
+                      <label className="font-bold text-slate-700 text-sm flex items-center gap-2"><Coffee size={14} /> Auto-Deduct Lunch</label>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3 pl-6">
+                      <div>
+                        <label className="text-[10px] uppercase font-bold text-slate-400">Start Time</label>
+                        <input type="time" name="lunch_start" defaultValue={payrollConfig?.lunch_start || '12:00'} className="w-full p-1 border rounded text-sm" />
+                      </div>
+                      <div>
+                        <label className="text-[10px] uppercase font-bold text-slate-400">Duration (Mins)</label>
+                        <input type="number" name="lunch_duration" defaultValue={payrollConfig?.lunch_duration || 30} className="w-full p-1 border rounded text-sm" />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Auto-Start Adjust */}
+                  <div className="bg-slate-50 p-3 rounded-lg border border-slate-200">
+                    <div className="flex items-center gap-2 mb-2">
+                      <input type="checkbox" name="auto_start_adjust" defaultChecked={payrollConfig?.auto_start_adjust} className="w-4 h-4 accent-amber-500" />
+                      <label className="font-bold text-slate-700 text-sm flex items-center gap-2"><ArrowRightCircle size={14} /> Round Early Clock-In</label>
+                    </div>
+                    <div className="pl-6">
+                      <label className="text-[10px] uppercase font-bold text-slate-400">Official Start Time</label>
+                      <input type="time" name="official_start_time" defaultValue={payrollConfig?.official_start_time || '07:00'} className="w-full p-1 border rounded text-sm" />
+                      <p className="text-[10px] text-slate-400 mt-1">If clocked in early, time snaps to this.</p>
+                    </div>
+                  </div>
+
+                  {/* Auto-Clockout */}
+                  <div className="flex items-center gap-2">
+                    <input type="checkbox" name="auto_clockout" defaultChecked={payrollConfig?.auto_clockout} className="w-4 h-4 accent-amber-500" />
+                    <label className="text-sm font-bold text-slate-700">Auto-Close Shift @ 23:59</label>
+                  </div>
                 </div>
+
               </div>
-              <div className="flex gap-3 pt-6">
+              <div className="flex gap-3 pt-6 border-t border-slate-100 mt-4">
                 <button type="button" onClick={() => setShowSettings(false)} className="flex-1 py-2 font-bold text-slate-500 bg-slate-100 rounded">Cancel</button>
                 <button type="submit" className="flex-1 py-2 bg-slate-900 text-white font-bold rounded">Save</button>
               </div>
