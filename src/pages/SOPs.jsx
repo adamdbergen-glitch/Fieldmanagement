@@ -3,11 +3,17 @@ import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { Book, Search, Plus, X, Trash2, ChevronRight, ListChecks, Edit } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
-import { can, PERMISSIONS } from '../lib/permissions'
+
+// REMOVED permissions import to rely on strict role check
+// import { can, PERMISSIONS } from '../lib/permissions'
 
 export default function SOPs() {
-  const navigate = useNavigate() // <--- Added for navigation
+  const navigate = useNavigate()
   const { userProfile } = useAuth()
+  
+  // STRICT ADMIN CHECK
+  const isAdmin = userProfile?.role === 'admin'
+
   const [sops, setSops] = useState([])
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState('')
@@ -102,13 +108,15 @@ export default function SOPs() {
             />
           </div>
 
-          {/* CREATE BUTTON (New!) */}
-          <button 
-            onClick={() => navigate('/sops/new')}
-            className="bg-amber-500 hover:bg-amber-600 text-white font-bold py-2 px-4 rounded-lg flex items-center gap-2 shadow-sm transition-all"
-          >
-            <Plus size={20} /> <span className="hidden md:inline">Create SOP</span>
-          </button>
+          {/* CREATE BUTTON (Restricted to Admin) */}
+          {isAdmin && (
+            <button 
+              onClick={() => navigate('/sops/new')}
+              className="bg-amber-500 hover:bg-amber-600 text-white font-bold py-2 px-4 rounded-lg flex items-center gap-2 shadow-sm transition-all"
+            >
+              <Plus size={20} /> <span className="hidden md:inline">Create SOP</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -120,7 +128,9 @@ export default function SOPs() {
           <div className="col-span-3 text-center py-20 bg-slate-50 rounded-xl border-2 border-dashed border-slate-200">
             <Book size={48} className="mx-auto text-slate-300 mb-4" />
             <p className="text-slate-500">No guides found.</p>
-            <button onClick={() => navigate('/sops/new')} className="text-amber-600 font-bold text-sm mt-2 hover:underline">Create your first SOP</button>
+            {isAdmin && (
+              <button onClick={() => navigate('/sops/new')} className="text-amber-600 font-bold text-sm mt-2 hover:underline">Create your first SOP</button>
+            )}
           </div>
         ) : (
           filteredSops.map((sop) => (
@@ -152,29 +162,29 @@ export default function SOPs() {
                   Read Manual <ChevronRight size={16} />
                 </span>
                 
-                {/* Admin Actions */}
-                <div className="flex gap-1">
-                  {/* EDIT BUTTON (New!) */}
-                  <button 
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      navigate(`/sops/${sop.id}`)
-                    }}
-                    className="text-slate-300 hover:text-blue-500 p-2 hover:bg-blue-50 rounded transition-colors"
-                  >
-                    <Edit size={16} />
-                  </button>
+                {/* Admin Actions (Restricted) */}
+                {isAdmin && (
+                  <div className="flex gap-1">
+                    {/* EDIT BUTTON */}
+                    <button 
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        navigate(`/sops/${sop.id}`)
+                      }}
+                      className="text-slate-300 hover:text-blue-500 p-2 hover:bg-blue-50 rounded transition-colors"
+                    >
+                      <Edit size={16} />
+                    </button>
 
-                  {/* DELETE BUTTON */}
-                  {can(userProfile?.role, PERMISSIONS.CAN_DELETE_PROJECT) && (
+                    {/* DELETE BUTTON */}
                     <button 
                       onClick={(e) => handleDelete(sop.id, e)}
                       className="text-slate-300 hover:text-red-500 p-2 hover:bg-red-50 rounded transition-colors"
                     >
                       <Trash2 size={16} />
                     </button>
-                  )}
-                </div>
+                  </div>
+                )}
               </div>
             </div>
           ))
