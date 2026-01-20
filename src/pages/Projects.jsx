@@ -5,7 +5,8 @@ import { Plus, Search, MapPin, Calendar, Briefcase, UserCheck, Folder as FolderI
 import { Link, useNavigate } from 'react-router-dom'
 import { format, parseISO } from 'date-fns'
 import { useAuth } from '../contexts/AuthContext'
-import { can, PERMISSIONS } from '../lib/permissions'
+// Removed unused permissions import to keep code clean since we are using explicit role check
+// import { can, PERMISSIONS } from '../lib/permissions' 
 
 export default function Projects() {
   const { userProfile } = useAuth()
@@ -125,7 +126,8 @@ export default function Projects() {
             />
           </div>
 
-          {can(userProfile?.role, PERMISSIONS.CAN_DELETE_PROJECT) && (
+          {/* RESTRICTED: Only Admin can see Add Project */}
+          {userProfile?.role === 'admin' && (
             <Link to="/projects/new" className="bg-slate-900 hover:bg-slate-800 text-white font-bold px-4 py-2.5 rounded-lg flex items-center justify-center gap-2 shadow-sm transition-colors whitespace-nowrap">
               <Plus size={18} /> New Project
             </Link>

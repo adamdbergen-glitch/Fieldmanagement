@@ -112,8 +112,8 @@ export default function ProjectSOPs({ projectId }) {
           <ListChecks className="text-amber-500" /> Operational Checklists
         </h3>
         
-        {/* Only Admin/Foreman can ADD checklists */}
-        {can(userProfile?.role, PERMISSIONS.CAN_UPDATE_STATUS) && (
+        {/* STRICT RESTRICTION: Only Admin can ADD checklists */}
+        {userProfile?.role === 'admin' && (
           <button 
             onClick={() => setIsAdding(!isAdding)}
             className="bg-amber-500 hover:bg-amber-600 text-slate-900 font-bold px-4 py-2 rounded text-sm flex items-center gap-2 shadow-sm transition-colors"
@@ -188,7 +188,7 @@ export default function ProjectSOPs({ projectId }) {
                 </div>
 
                 {/* Remove Button (Admin Only) */}
-                {can(userProfile?.role, PERMISSIONS.CAN_DELETE_PROJECT) && (
+                {userProfile?.role === 'admin' && (
                   <button 
                     onClick={(e) => { e.stopPropagation(); removeSop(link.id); }}
                     className="text-slate-300 hover:text-red-500 p-2 hover:bg-red-50 rounded transition-colors"

@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
-import { format, parseISO, addDays, differenceInCalendarDays, startOfMonth, endOfMonth, setDate, differenceInMinutes, setHours, setMinutes, isBefore } from 'date-fns' // <--- Added logic imports
+import { format, parseISO, addDays, differenceInCalendarDays, startOfMonth, endOfMonth, setDate, differenceInMinutes, setHours, setMinutes, isBefore } from 'date-fns'
 import { DollarSign, Clock, Calendar } from 'lucide-react'
 import TimeClock from '../components/TimeClock'
 
@@ -14,7 +14,7 @@ export default function Dashboard() {
   // Payroll Stats State
   const [stats, setStats] = useState({ hours: 0, daysUntilPay: 0, payDate: null, periodLabel: 'Loading...' })
 
-  // 1. FETCH ACTIVE PROJECTS (Existing Logic)
+  // 1. FETCH ACTIVE PROJECTS
   useEffect(() => {
     fetchActiveProjects()
   }, [])
@@ -38,7 +38,7 @@ export default function Dashboard() {
     }
   }
 
-  // 2. FETCH PAYROLL DATA (Updated with Smart Calc)
+  // 2. FETCH PAYROLL DATA
   useEffect(() => {
     async function fetchPayrollData() {
       if (!user) return
@@ -78,7 +78,7 @@ export default function Dashboard() {
         .gte('clock_in_time', start.toISOString())
         .lte('clock_in_time', end.toISOString())
       
-      // E. Calculate Total Minutes (Subtract Lunch if enabled)
+      // E. Calculate Total Minutes
       const totalMinutes = logs?.reduce((sum, log) => {
         if (!log.clock_out_time) return sum
         
@@ -135,12 +135,16 @@ export default function Dashboard() {
             Welcome back, <span className="font-bold text-slate-700">{userProfile?.full_name || 'Crew Member'}</span>
           </p>
         </div>
-        <Link 
-          to="/projects/new"
-          className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg shadow-sm transition-colors font-bold"
-        >
-          + New Project
-        </Link>
+        
+        {/* RESTRICTED: Only Admin sees New Project button */}
+        {userProfile?.role === 'admin' && (
+          <Link 
+            to="/projects/new"
+            className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg shadow-sm transition-colors font-bold"
+          >
+            + New Project
+          </Link>
+        )}
       </div>
 
       {/* 2. TIME CLOCK & PAYROLL WIDGET */}
