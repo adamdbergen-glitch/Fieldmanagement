@@ -2,15 +2,15 @@ import React, { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
-import { format, parseISO, differenceInMinutes, addDays } from 'date-fns'
-import { Clock, Save, Loader2, Calendar, User, Edit2, X, Settings, MapPin, Plus, Briefcase } from 'lucide-react'
+import { format, parseISO, differenceInMinutes, addDays, startOfMonth, endOfMonth, setDate, isAfter, isBefore, endOfDay } from 'date-fns'
+import { Clock, Save, Loader2, Calendar, User, Edit2, X, Settings, MapPin, Plus, Briefcase, AlertCircle } from 'lucide-react'
 
 export default function Timesheets() {
   const queryClient = useQueryClient()
   const { user, userProfile, loading: authLoading } = useAuth()
   
   const [editingLog, setEditingLog] = useState(null)
-  const [isCreating, setIsCreating] = useState(false) // NEW: Track creation mode
+  const [isCreating, setIsCreating] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
 
   // --- 1. FETCH PAYROLL SETTINGS ---
@@ -18,11 +18,17 @@ export default function Timesheets() {
     queryKey: ['payroll_config'],
     queryFn: async () => {
       const { data } = await supabase.from('app_settings').select('setting_value').eq('setting_key', 'payroll_config').single()
-      return data?.setting_value || { frequency: 'biweekly', anchor_date: '2025-01-01' }
+      // Default to biweekly if not found
+      return data?.setting_value || { 
+        frequency: 'biweekly', 
+        anchor_date: '2025-01-01', 
+        cutoff_day: 0, // 0 = No offset
+        auto_clockout: false 
+      }
     }
   })
 
-  // --- NEW: FETCH LISTS FOR DROPDOWNS ---
+  // --- FETCH LISTS FOR DROPDOWNS ---
   const { data: team } = useQuery({ 
     queryKey: ['team_list'], 
     queryFn: async () => (await supabase.from('profiles').select('id, full_name').order('full_name')).data 
@@ -33,14 +39,14 @@ export default function Timesheets() {
     queryFn: async () => (await supabase.from('projects').select('id, name').neq('status', 'Completed').order('name')).data 
   })
 
-  // --- 2. FETCH LOGS (Updated to include Project Name) ---
+  // --- 2. FETCH LOGS ---
   const { data: logs, isLoading: isQueryLoading } = useQuery({
     queryKey: ['time_logs', user?.id],
     enabled: !!user?.id,
     queryFn: async () => {
       let query = supabase
         .from('time_logs')
-        .select(`*, profiles:user_id ( full_name, email ), project:projects ( name )`) // Added project name
+        .select(`*, profiles:user_id ( full_name, email ), project:projects ( name )`)
         .order('clock_in_time', { ascending: false })
 
       if (userProfile?.role !== 'admin') {
@@ -54,8 +60,6 @@ export default function Timesheets() {
   })
 
   // --- 3. MUTATIONS ---
-  
-  // NEW: Create Log Mutation
   const createLogMutation = useMutation({
     mutationFn: async (newData) => {
       const { error } = await supabase.from('time_logs').insert(newData)
@@ -71,7 +75,7 @@ export default function Timesheets() {
           clock_in_time: updatedData.clock_in_time,
           clock_out_time: updatedData.clock_out_time,
           admin_notes: updatedData.admin_notes,
-          project_id: updatedData.project_id // Allow changing project
+          project_id: updatedData.project_id
         }).eq('id', updatedData.id)
       if (error) throw error
     },
@@ -87,17 +91,38 @@ export default function Timesheets() {
     onSuccess: () => { queryClient.invalidateQueries(['payroll_config']); setShowSettings(false) }
   })
 
-  // --- HELPER: Pay Period ---
+  // --- HELPER: Advanced Pay Period Calculator ---
   const getPayPeriodLabel = (dateString) => {
     if (!payrollConfig) return 'Loading...'
     const date = parseISO(dateString)
+    
+    // 1. MONTHLY
+    if (payrollConfig.frequency === 'monthly') {
+      return format(date, 'MMMM yyyy')
+    }
+
+    // 2. SEMI-MONTHLY (1st-15th, 16th-End)
+    if (payrollConfig.frequency === 'semimonthly') {
+      const day = date.getDate()
+      const monthStart = startOfMonth(date)
+      const monthEnd = endOfMonth(date)
+      
+      if (day <= 15) {
+        return `${format(monthStart, 'MMM 1')} - ${format(setDate(date, 15), 'MMM 15, yyyy')}`
+      } else {
+        return `${format(setDate(date, 16), 'MMM 16')} - ${format(monthEnd, 'MMM d, yyyy')}`
+      }
+    }
+
+    // 3. WEEKLY / BI-WEEKLY (Anchor Date Logic)
     const anchor = parseISO(payrollConfig.anchor_date)
     const freqDays = payrollConfig.frequency === 'weekly' ? 7 : 14 
     
+    // Calculate periods since anchor
     const diffTime = date.getTime() - anchor.getTime()
     const diffDays = Math.floor(diffTime / (1000 * 3600 * 24))
-    
     const periodIndex = Math.floor(diffDays / freqDays)
+    
     const periodStart = addDays(anchor, periodIndex * freqDays)
     const periodEnd = addDays(periodStart, freqDays - 1)
 
@@ -111,17 +136,8 @@ export default function Timesheets() {
     return groups
   }, {})
 
-  if (authLoading || isQueryLoading) {
-    return <div className="p-12 text-center"><Loader2 className="animate-spin inline text-amber-500 mr-2"/> Loading...</div>
-  }
-
-  if (!logs) {
-    return (
-      <div className="p-12 text-center border-2 border-dashed border-slate-200 rounded-xl m-8">
-        <p className="text-slate-500 mb-2">Unable to load timesheets.</p>
-      </div>
-    )
-  }
+  if (authLoading || isQueryLoading) return <div className="p-12 text-center"><Loader2 className="animate-spin inline text-amber-500 mr-2"/> Loading...</div>
+  if (!logs) return <div className="p-12 text-center border-2 border-dashed border-slate-200 rounded-xl m-8"><p className="text-slate-500">Unable to load timesheets.</p></div>
 
   return (
     <div className="max-w-7xl mx-auto p-4 md:p-8">
@@ -135,7 +151,6 @@ export default function Timesheets() {
         
         {userProfile?.role === 'admin' && (
           <div className="flex gap-2">
-            {/* NEW: Add Entry Button */}
             <button 
               onClick={() => setIsCreating(true)}
               className="flex items-center gap-2 px-4 py-2 bg-slate-900 text-white rounded-lg font-bold shadow-sm hover:bg-slate-800 transition-colors"
@@ -190,7 +205,6 @@ export default function Timesheets() {
                           </div>
                           <div>
                             <span className="font-medium text-slate-900 text-sm block">{log.profiles?.full_name}</span>
-                            {/* NEW: Show Project Name */}
                             <span className="text-xs text-slate-500 flex items-center gap-1">
                                 <Briefcase size={10}/> {log.project?.name || 'No Project'}
                             </span>
@@ -246,28 +260,59 @@ export default function Timesheets() {
         )}
       </div>
 
-      {/* SETTINGS MODAL */}
+      {/* ADVANCED PAYROLL SETTINGS MODAL */}
       {showSettings && (
         <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-md p-6">
-            <h3 className="text-xl font-bold text-slate-900 mb-4">Payroll Settings</h3>
+            <h3 className="text-xl font-bold text-slate-900 mb-4">Payroll Configuration</h3>
             <form onSubmit={(e) => {
               e.preventDefault();
               const formData = new FormData(e.target);
-              saveSettingsMutation.mutate({ frequency: formData.get('frequency'), anchor_date: formData.get('anchor_date') })
+              saveSettingsMutation.mutate({ 
+                frequency: formData.get('frequency'), 
+                anchor_date: formData.get('anchor_date'),
+                cutoff_day: formData.get('cutoff_day'),
+                auto_clockout: formData.get('auto_clockout') === 'on'
+              })
             }}>
               <div className="space-y-4">
+                
+                {/* Frequency */}
                 <div>
                   <label className="block text-sm font-bold text-slate-700 mb-1">Pay Frequency</label>
-                  <select name="frequency" defaultValue={payrollConfig?.frequency} className="w-full p-2 border border-slate-300 rounded">
+                  <select name="frequency" defaultValue={payrollConfig?.frequency} className="w-full p-2 border border-slate-300 rounded bg-white">
                     <option value="weekly">Weekly (Every 7 Days)</option>
                     <option value="biweekly">Bi-Weekly (Every 14 Days)</option>
+                    <option value="semimonthly">Semi-Monthly (1st-15th, 16th-End)</option>
+                    <option value="monthly">Monthly (Calendar Month)</option>
                   </select>
                 </div>
+
+                {/* Anchor Date (Only needed for Weekly/Bi-Weekly) */}
                 <div>
                   <label className="block text-sm font-bold text-slate-700 mb-1">Anchor Date</label>
-                  <input type="date" name="anchor_date" defaultValue={payrollConfig?.anchor_date} className="w-full p-2 border border-slate-300 rounded" required />
+                  <input type="date" name="anchor_date" defaultValue={payrollConfig?.anchor_date} className="w-full p-2 border border-slate-300 rounded" />
+                  <p className="text-xs text-slate-400 mt-1">Start date for Weekly/Bi-Weekly cycles.</p>
                 </div>
+
+                {/* Cutoff Settings */}
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 mb-1">Cutoff Offset</label>
+                    <input type="number" name="cutoff_day" defaultValue={payrollConfig?.cutoff_day || 0} className="w-full p-2 border border-slate-300 rounded" />
+                    <p className="text-[10px] text-slate-400">Days to process payroll.</p>
+                  </div>
+                  <div className="flex items-center gap-2 pt-6">
+                    <input type="checkbox" name="auto_clockout" defaultChecked={payrollConfig?.auto_clockout} className="w-5 h-5 accent-amber-500" />
+                    <label className="text-sm font-bold text-slate-700">Auto-Close @ 23:59</label>
+                  </div>
+                </div>
+                
+                <div className="bg-amber-50 p-3 rounded border border-amber-100 text-xs text-amber-800 flex items-start gap-2">
+                  <AlertCircle size={14} className="mt-0.5 shrink-0"/>
+                  <p>Enabling "Auto-Close" will mark shifts as complete at midnight. Overnight crews should verify their hours manually.</p>
+                </div>
+
               </div>
               <div className="flex gap-3 pt-6">
                 <button type="button" onClick={() => setShowSettings(false)} className="flex-1 py-2 font-bold text-slate-500 hover:bg-slate-100 rounded">Cancel</button>
@@ -278,7 +323,7 @@ export default function Timesheets() {
         </div>
       )}
 
-      {/* COMBINED CREATE / EDIT MODAL */}
+      {/* CREATE / EDIT MODAL */}
       {(editingLog || isCreating) && (
         <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-md p-6">
@@ -299,17 +344,15 @@ export default function Timesheets() {
                 clock_in_time: formData.get('clock_in'),
                 clock_out_time: formData.get('clock_out') || null,
                 admin_notes: formData.get('notes'),
-                project_id: formData.get('project_id') // Save Project
+                project_id: formData.get('project_id')
               }
 
               if (isCreating) {
-                // For new logs, we need the User ID too
                 createLogMutation.mutate({ 
                   ...payload, 
                   user_id: formData.get('user_id') 
                 })
               } else {
-                // For updates, we use the existing Log ID
                 updateLogMutation.mutate({ 
                   ...payload, 
                   id: editingLog.id 
@@ -317,8 +360,6 @@ export default function Timesheets() {
               }
             }}>
               <div className="space-y-3">
-                
-                {/* Employee Selector (Only when creating new) */}
                 {isCreating && (
                   <div>
                     <label className="block text-sm font-bold text-slate-700">Employee</label>
@@ -330,7 +371,6 @@ export default function Timesheets() {
                   </div>
                 )}
                 
-                {/* Project Selector (Always visible) */}
                 <div>
                   <label className="block text-sm font-bold text-slate-700">Project</label>
                   <select 
