@@ -3,15 +3,19 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '../lib/supabase'
 import { Plus, CheckSquare, Square, Trash2, ChevronDown, ChevronUp, ShieldAlert, ListChecks } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
-import { can, PERMISSIONS } from '../lib/permissions'
+
+// REMOVED: import { can, PERMISSIONS } ... (We are using strict role checks now)
 
 export default function ProjectSOPs({ projectId }) {
   const { userProfile } = useAuth()
   const queryClient = useQueryClient()
   
+  // STRICT ADMIN CHECK
+  const isAdmin = userProfile?.role === 'admin'
+  
   const [selectedSopId, setSelectedSopId] = useState('')
   const [isAdding, setIsAdding] = useState(false)
-  const [expandedSop, setExpandedSop] = useState(null) // Tracks which accordion is open
+  const [expandedSop, setExpandedSop] = useState(null) 
 
   // 1. Fetch Assigned SOPs + Progress + Items (All in one efficient query)
   const { data: projectSops, isLoading } = useQuery({
@@ -82,9 +86,7 @@ export default function ProjectSOPs({ projectId }) {
   }
 
   const toggleItem = async (itemId, isCurrentlyCompleted) => {
-    // Optimistic UI Update (optional, but makes it feel fast)
-    // We let React Query handle the refresh for accuracy
-
+    // CREW CAN DO THIS (It's their job)
     if (isCurrentlyCompleted) {
       // Uncheck
       await supabase.from('project_item_completion').delete().match({
@@ -112,8 +114,8 @@ export default function ProjectSOPs({ projectId }) {
           <ListChecks className="text-amber-500" /> Operational Checklists
         </h3>
         
-        {/* STRICT RESTRICTION: Only Admin can ADD checklists */}
-        {userProfile?.role === 'admin' && (
+        {/* STRICT RESTRICTION: Only Admin can see the Add Button */}
+        {isAdmin && (
           <button 
             onClick={() => setIsAdding(!isAdding)}
             className="bg-amber-500 hover:bg-amber-600 text-slate-900 font-bold px-4 py-2 rounded text-sm flex items-center gap-2 shadow-sm transition-colors"
@@ -123,8 +125,8 @@ export default function ProjectSOPs({ projectId }) {
         )}
       </div>
 
-      {/* ADD DROPDOWN */}
-      {isAdding && (
+      {/* ADD DROPDOWN (Protected by logic, but hidden by UI above anyway) */}
+      {isAdding && isAdmin && (
         <div className="flex gap-2 mb-6 p-4 bg-slate-50 rounded-lg border border-slate-200 animate-in fade-in slide-in-from-top-2">
           <select 
             className="flex-1 p-2 border border-slate-300 rounded text-sm focus:ring-2 focus:ring-amber-500 outline-none"
@@ -187,8 +189,8 @@ export default function ProjectSOPs({ projectId }) {
                   </div>
                 </div>
 
-                {/* Remove Button (Admin Only) */}
-                {userProfile?.role === 'admin' && (
+                {/* STRICT RESTRICTION: Only Admin can see the Delete Button */}
+                {isAdmin && (
                   <button 
                     onClick={(e) => { e.stopPropagation(); removeSop(link.id); }}
                     className="text-slate-300 hover:text-red-500 p-2 hover:bg-red-50 rounded transition-colors"
@@ -199,7 +201,7 @@ export default function ProjectSOPs({ projectId }) {
                 )}
               </div>
 
-              {/* CHECKLIST ITEMS */}
+              {/* CHECKLIST ITEMS (Visible to Everyone) */}
               {isOpen && (
                 <div className="p-4 bg-white space-y-2">
                   {link.items.map(item => {
