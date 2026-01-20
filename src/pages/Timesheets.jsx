@@ -3,13 +3,14 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { format, parseISO, differenceInMinutes, addDays } from 'date-fns'
-import { Clock, Save, Loader2, Calendar, User, Edit2, X, Settings, MapPin } from 'lucide-react'
+import { Clock, Save, Loader2, Calendar, User, Edit2, X, Settings, MapPin, Plus, Briefcase } from 'lucide-react'
 
 export default function Timesheets() {
   const queryClient = useQueryClient()
   const { user, userProfile, loading: authLoading } = useAuth()
   
   const [editingLog, setEditingLog] = useState(null)
+  const [isCreating, setIsCreating] = useState(false) // NEW: Track creation mode
   const [showSettings, setShowSettings] = useState(false)
 
   // --- 1. FETCH PAYROLL SETTINGS ---
@@ -21,14 +22,25 @@ export default function Timesheets() {
     }
   })
 
-  // --- 2. FETCH LOGS ---
+  // --- NEW: FETCH LISTS FOR DROPDOWNS ---
+  const { data: team } = useQuery({ 
+    queryKey: ['team_list'], 
+    queryFn: async () => (await supabase.from('profiles').select('id, full_name').order('full_name')).data 
+  })
+  
+  const { data: projects } = useQuery({ 
+    queryKey: ['project_list'], 
+    queryFn: async () => (await supabase.from('projects').select('id, name').neq('status', 'Completed').order('name')).data 
+  })
+
+  // --- 2. FETCH LOGS (Updated to include Project Name) ---
   const { data: logs, isLoading: isQueryLoading } = useQuery({
     queryKey: ['time_logs', user?.id],
     enabled: !!user?.id,
     queryFn: async () => {
       let query = supabase
         .from('time_logs')
-        .select(`*, profiles:user_id ( full_name, email )`)
+        .select(`*, profiles:user_id ( full_name, email ), project:projects ( name )`) // Added project name
         .order('clock_in_time', { ascending: false })
 
       if (userProfile?.role !== 'admin') {
@@ -42,13 +54,24 @@ export default function Timesheets() {
   })
 
   // --- 3. MUTATIONS ---
+  
+  // NEW: Create Log Mutation
+  const createLogMutation = useMutation({
+    mutationFn: async (newData) => {
+      const { error } = await supabase.from('time_logs').insert(newData)
+      if (error) throw error
+    },
+    onSuccess: () => { queryClient.invalidateQueries(['time_logs']); setIsCreating(false) }
+  })
+
   const updateLogMutation = useMutation({
     mutationFn: async (updatedData) => {
       const { error } = await supabase.from('time_logs')
         .update({
           clock_in_time: updatedData.clock_in_time,
           clock_out_time: updatedData.clock_out_time,
-          admin_notes: updatedData.admin_notes
+          admin_notes: updatedData.admin_notes,
+          project_id: updatedData.project_id // Allow changing project
         }).eq('id', updatedData.id)
       if (error) throw error
     },
@@ -111,12 +134,21 @@ export default function Timesheets() {
         </div>
         
         {userProfile?.role === 'admin' && (
-          <button 
-            onClick={() => setShowSettings(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-300 rounded-lg text-slate-600 hover:bg-slate-50 hover:text-blue-600 font-bold transition-colors shadow-sm"
-          >
-            <Settings size={18} /> Payroll Settings
-          </button>
+          <div className="flex gap-2">
+            {/* NEW: Add Entry Button */}
+            <button 
+              onClick={() => setIsCreating(true)}
+              className="flex items-center gap-2 px-4 py-2 bg-slate-900 text-white rounded-lg font-bold shadow-sm hover:bg-slate-800 transition-colors"
+            >
+              <Plus size={18} /> Add Entry
+            </button>
+            <button 
+              onClick={() => setShowSettings(true)}
+              className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-300 rounded-lg text-slate-600 hover:bg-slate-50 hover:text-blue-600 font-bold transition-colors shadow-sm"
+            >
+              <Settings size={18} /> Settings
+            </button>
+          </div>
         )}
       </div>
 
@@ -136,7 +168,7 @@ export default function Timesheets() {
             <table className="w-full text-left border-collapse">
               <thead className="bg-white border-b border-slate-100">
                 <tr>
-                  <th className="p-4 text-xs font-bold text-slate-400 uppercase">Person</th>
+                  <th className="p-4 text-xs font-bold text-slate-400 uppercase">Person / Project</th>
                   <th className="p-4 text-xs font-bold text-slate-400 uppercase hidden md:table-cell">Date</th>
                   <th className="p-4 text-xs font-bold text-slate-400 uppercase">In / Out</th>
                   <th className="p-4 text-xs font-bold text-slate-400 uppercase">Total</th>
@@ -156,7 +188,13 @@ export default function Timesheets() {
                           <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center text-blue-700 font-bold text-xs shrink-0">
                             {log.profiles?.full_name?.charAt(0) || <User size={12}/>}
                           </div>
-                          <span className="font-medium text-slate-900 text-sm">{log.profiles?.full_name}</span>
+                          <div>
+                            <span className="font-medium text-slate-900 text-sm block">{log.profiles?.full_name}</span>
+                            {/* NEW: Show Project Name */}
+                            <span className="text-xs text-slate-500 flex items-center gap-1">
+                                <Briefcase size={10}/> {log.project?.name || 'No Project'}
+                            </span>
+                          </div>
                         </div>
                       </td>
                       <td className="p-4 text-slate-600 text-sm font-mono hidden md:table-cell">
@@ -166,35 +204,18 @@ export default function Timesheets() {
                         <div className="md:hidden text-xs text-slate-400 mb-1">
                             {format(parseISO(log.clock_in_time), 'MMM d')}
                         </div>
-                        
-                        {/* IN TIME + GPS LINK */}
                         <span className="text-green-700 font-bold">{format(parseISO(log.clock_in_time), 'h:mm a')}</span>
                         {log.gps_in_lat && (
-                          <a 
-                            href={`https://www.google.com/maps?q=${log.gps_in_lat},${log.gps_in_long}`} 
-                            target="_blank" 
-                            rel="noreferrer"
-                            className="inline-block ml-1 text-slate-300 hover:text-blue-500"
-                            title="View Clock In Location"
-                          >
+                          <a href={`https://www.google.com/maps?q=${log.gps_in_lat},${log.gps_in_long}`} target="_blank" rel="noreferrer" className="inline-block ml-1 text-slate-300 hover:text-blue-500">
                             <MapPin size={12} />
                           </a>
                         )}
-
                         <span className="text-slate-300 mx-2">-</span>
-                        
-                        {/* OUT TIME + GPS LINK */}
                         {log.clock_out_time ? (
                           <>
                             <span className="text-slate-700">{format(parseISO(log.clock_out_time), 'h:mm a')}</span>
                             {log.gps_out_lat && (
-                              <a 
-                                href={`https://www.google.com/maps?q=${log.gps_out_lat},${log.gps_out_long}`} 
-                                target="_blank" 
-                                rel="noreferrer"
-                                className="inline-block ml-1 text-slate-300 hover:text-blue-500"
-                                title="View Clock Out Location"
-                              >
+                              <a href={`https://www.google.com/maps?q=${log.gps_out_lat},${log.gps_out_long}`} target="_blank" rel="noreferrer" className="inline-block ml-1 text-slate-300 hover:text-blue-500">
                                 <MapPin size={12} />
                               </a>
                             )}
@@ -225,7 +246,7 @@ export default function Timesheets() {
         )}
       </div>
 
-      {/* Settings & Edit Modals (Unchanged) */}
+      {/* SETTINGS MODAL */}
       {showSettings && (
         <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-md p-6">
@@ -257,31 +278,105 @@ export default function Timesheets() {
         </div>
       )}
 
-      {editingLog && (
+      {/* COMBINED CREATE / EDIT MODAL */}
+      {(editingLog || isCreating) && (
         <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-md p-6">
-            <h3 className="text-lg font-bold text-slate-900 mb-4">Edit Time Log</h3>
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-bold text-slate-900">
+                {isCreating ? 'Add Manual Entry' : 'Edit Time Log'}
+              </h3>
+              <button onClick={() => { setEditingLog(null); setIsCreating(false); }}>
+                <X className="text-slate-400 hover:text-slate-700"/>
+              </button>
+            </div>
+            
             <form onSubmit={(e) => {
               e.preventDefault();
               const formData = new FormData(e.target);
-              updateLogMutation.mutate({
-                id: editingLog.id,
+              
+              const payload = {
                 clock_in_time: formData.get('clock_in'),
                 clock_out_time: formData.get('clock_out') || null,
-                admin_notes: formData.get('notes')
-              })
+                admin_notes: formData.get('notes'),
+                project_id: formData.get('project_id') // Save Project
+              }
+
+              if (isCreating) {
+                // For new logs, we need the User ID too
+                createLogMutation.mutate({ 
+                  ...payload, 
+                  user_id: formData.get('user_id') 
+                })
+              } else {
+                // For updates, we use the existing Log ID
+                updateLogMutation.mutate({ 
+                  ...payload, 
+                  id: editingLog.id 
+                })
+              }
             }}>
               <div className="space-y-3">
-                <label className="block text-sm font-bold text-slate-700">Clock In</label>
-                <input type="datetime-local" name="clock_in" defaultValue={format(parseISO(editingLog.clock_in_time), "yyyy-MM-dd'T'HH:mm")} className="w-full p-2 border rounded" required />
-                <label className="block text-sm font-bold text-slate-700">Clock Out</label>
-                <input type="datetime-local" name="clock_out" defaultValue={editingLog.clock_out_time ? format(parseISO(editingLog.clock_out_time), "yyyy-MM-dd'T'HH:mm") : ''} className="w-full p-2 border rounded" />
-                <label className="block text-sm font-bold text-slate-700">Notes</label>
-                <textarea name="notes" defaultValue={editingLog.admin_notes} className="w-full p-2 border rounded" />
+                
+                {/* Employee Selector (Only when creating new) */}
+                {isCreating && (
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700">Employee</label>
+                    <select name="user_id" required className="w-full p-2 border rounded bg-white">
+                      {team?.map(p => (
+                        <option key={p.id} value={p.id}>{p.full_name}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+                
+                {/* Project Selector (Always visible) */}
+                <div>
+                  <label className="block text-sm font-bold text-slate-700">Project</label>
+                  <select 
+                    name="project_id" 
+                    required 
+                    defaultValue={editingLog?.project_id || ''} 
+                    className="w-full p-2 border rounded bg-white"
+                  >
+                    <option value="">-- Select Project --</option>
+                    {projects?.map(p => (
+                      <option key={p.id} value={p.id}>{p.name}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700">Clock In</label>
+                    <input 
+                      type="datetime-local" 
+                      name="clock_in" 
+                      defaultValue={editingLog ? format(parseISO(editingLog.clock_in_time), "yyyy-MM-dd'T'HH:mm") : ''} 
+                      className="w-full p-2 border rounded" 
+                      required 
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700">Clock Out</label>
+                    <input 
+                      type="datetime-local" 
+                      name="clock_out" 
+                      defaultValue={editingLog?.clock_out_time ? format(parseISO(editingLog.clock_out_time), "yyyy-MM-dd'T'HH:mm") : ''} 
+                      className="w-full p-2 border rounded" 
+                    />
+                  </div>
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-bold text-slate-700">Notes</label>
+                  <textarea name="notes" defaultValue={editingLog?.admin_notes} className="w-full p-2 border rounded" />
+                </div>
               </div>
               <div className="flex gap-3 pt-6">
-                <button type="button" onClick={() => setEditingLog(null)} className="flex-1 py-2 font-bold text-slate-500 hover:bg-slate-100 rounded">Cancel</button>
-                <button type="submit" className="flex-1 py-2 bg-amber-500 text-slate-900 font-bold rounded hover:bg-amber-600">Save</button>
+                <button type="submit" className="flex-1 py-2 bg-amber-500 text-slate-900 font-bold rounded hover:bg-amber-600">
+                  {isCreating ? 'Create Log' : 'Save Changes'}
+                </button>
               </div>
             </form>
           </div>

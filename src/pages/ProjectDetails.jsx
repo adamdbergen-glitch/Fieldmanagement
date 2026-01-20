@@ -8,7 +8,7 @@ import {
   MessageSquare, Link as LinkIcon, Check, Edit2, Save, X, 
   DollarSign, Receipt, Plus, Trash2
 } from 'lucide-react'
-import { format, parseISO } from 'date-fns'
+import { format, parseISO, differenceInMinutes } from 'date-fns' // <--- ADDED differenceInMinutes
 import ProjectSOPs from '../components/ProjectSOPs'
 import ProjectMaterials from '../components/ProjectMaterials'
 import ProjectFiles from '../components/ProjectFiles'
@@ -67,7 +67,32 @@ export default function ProjectDetails() {
     }
   })
 
-  // 3. FETCH CUSTOMERS (Edit Mode)
+  // 3. NEW: FETCH LABOR DATA (Logs + Wages + Burden)
+  const { data: laborData } = useQuery({
+    queryKey: ['project_labor', id],
+    queryFn: async () => {
+      // Get completed logs for this project + employee wage
+      const { data: logs } = await supabase
+        .from('time_logs')
+        .select('clock_in_time, clock_out_time, profile:user_id(wage)')
+        .eq('project_id', id)
+        .not('clock_out_time', 'is', null) // Only count finished shifts
+      
+      // Get tax burden from settings (default to 1.18 if missing)
+      const { data: settings } = await supabase
+        .from('app_settings')
+        .select('setting_value')
+        .eq('setting_key', 'payroll_config')
+        .single()
+      
+      return { 
+        logs: logs || [], 
+        burden: settings?.setting_value?.burden_multiplier || 1.18 
+      }
+    }
+  })
+
+  // 4. FETCH CUSTOMERS (Edit Mode)
   const { data: customers } = useQuery({
     queryKey: ['customers_list'],
     queryFn: async () => {
@@ -78,10 +103,28 @@ export default function ProjectDetails() {
     enabled: isEditing 
   })
 
-  // CALCULATE TOTALS
+  // --- CALCULATE TOTALS ---
   const totalExpenses = expenses?.reduce((sum, item) => sum + Number(item.amount), 0) || 0
+  
+  // NEW: Calculate Labor Cost
+  const laborCost = laborData?.logs.reduce((total, log) => {
+    if (!log.clock_out_time || !log.profile?.wage) return total
+    
+    // Calculate exact hours worked
+    const minutes = differenceInMinutes(parseISO(log.clock_out_time), parseISO(log.clock_in_time))
+    const hours = minutes / 60
+    
+    // Raw Pay = Hours * Wage
+    const rawPay = hours * log.profile.wage
+    
+    // Total Cost = Raw Pay * Burden (e.g. 1.18)
+    return total + (rawPay * laborData.burden)
+  }, 0) || 0
+
   const projectEstimate = Number(project?.estimate || 0)
-  const estimatedProfit = projectEstimate - totalExpenses
+  
+  // NEW: Net Profit Calculation (Estimate - Material - Labor)
+  const netProfit = projectEstimate - totalExpenses - laborCost
 
   // REAL-TIME LISTENER
   useEffect(() => {
@@ -122,7 +165,7 @@ export default function ProjectDetails() {
       address: project.address || project.customer?.address || '',
       city: project.city || '',
       customer_id: project.customer_id || '',
-      estimate: project.estimate || 0 // <--- Added Estimate
+      estimate: project.estimate || 0 
     })
     setIsEditing(true)
   }
@@ -137,7 +180,7 @@ export default function ProjectDetails() {
           address: editForm.address,
           city: editForm.city,
           customer_id: editForm.customer_id || null,
-          estimate: editForm.estimate // <--- Save Estimate
+          estimate: editForm.estimate 
         }).eq('id', id)
 
       if (error) throw error
@@ -374,7 +417,7 @@ export default function ProjectDetails() {
               
               {/* 1. ADMIN DASHBOARD (Hidden from Crew) */}
               {isAdmin && (
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                   <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
                     <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Estimate</p>
                     <p className="text-2xl font-black text-slate-900">${projectEstimate.toFixed(2)}</p>
@@ -383,9 +426,18 @@ export default function ProjectDetails() {
                     <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Expenses</p>
                     <p className="text-2xl font-black text-red-600">-${totalExpenses.toFixed(2)}</p>
                   </div>
-                  <div className={`p-5 rounded-xl border shadow-sm ${estimatedProfit >= 0 ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
-                    <p className={`text-xs font-bold uppercase tracking-widest ${estimatedProfit >= 0 ? 'text-green-600' : 'text-red-600'}`}>Net Profit</p>
-                    <p className={`text-2xl font-black ${estimatedProfit >= 0 ? 'text-green-700' : 'text-red-700'}`}>${estimatedProfit.toFixed(2)}</p>
+                  
+                  {/* NEW: Labor Cost Card */}
+                  <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
+                    <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Labor Cost</p>
+                    <p className="text-2xl font-black text-orange-600">-${laborCost.toFixed(2)}</p>
+                    <p className="text-[10px] text-slate-400 mt-1">Includes {((laborData?.burden || 1.18) - 1).toFixed(2) * 100}% Burden</p>
+                  </div>
+
+                  {/* UPDATED: Net Profit Card */}
+                  <div className={`p-5 rounded-xl border shadow-sm ${netProfit >= 0 ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
+                    <p className={`text-xs font-bold uppercase tracking-widest ${netProfit >= 0 ? 'text-green-600' : 'text-red-600'}`}>Net Profit</p>
+                    <p className={`text-2xl font-black ${netProfit >= 0 ? 'text-green-700' : 'text-red-700'}`}>${netProfit.toFixed(2)}</p>
                   </div>
                 </div>
               )}

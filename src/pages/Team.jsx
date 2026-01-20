@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '../lib/supabase'
-import { User, Shield, Hammer, HardHat, Search, Plus, Clock, Copy, X, Check, Mail } from 'lucide-react'
+import { User, Shield, Hammer, HardHat, Search, Plus, Clock, Copy, X, Check, Mail, DollarSign, Save } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import { can, PERMISSIONS } from '../lib/permissions'
 
@@ -10,6 +10,10 @@ export default function Team() {
   const queryClient = useQueryClient()
   const [searchTerm, setSearchTerm] = useState('')
   
+  // Wage Editing State (New)
+  const [editingWageId, setEditingWageId] = useState(null)
+  const [tempWage, setTempWage] = useState('')
+
   // Invite Modal State
   const [isInviting, setIsInviting] = useState(false)
   const [inviteForm, setInviteForm] = useState({ email: '', full_name: '', role: 'crew' })
@@ -24,7 +28,7 @@ export default function Team() {
     }
   })
 
-  // 2. Fetch Pending Invites (Only Admins can see this)
+  // 2. Fetch Pending Invites (Only Admins/Foreman can see this)
   const { data: invites } = useQuery({
     queryKey: ['invites'],
     queryFn: async () => {
@@ -39,6 +43,16 @@ export default function Team() {
   })
 
   // --- ACTIONS ---
+
+  // Save Wage (New)
+  const handleWageSave = async (id) => {
+    const { error } = await supabase.from('profiles').update({ wage: parseFloat(tempWage) }).eq('id', id)
+    if (error) alert("Error saving wage: " + error.message)
+    else {
+      setEditingWageId(null)
+      queryClient.invalidateQueries(['team'])
+    }
+  }
 
   // Update Role (Promote/Demote)
   const handleRoleChange = async (userId, newRole) => {
@@ -121,8 +135,8 @@ export default function Team() {
       {/* HEADER */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
         <div>
-          <h1 className="text-3xl font-bold text-slate-900">Team Roster</h1>
-          <p className="text-slate-500 mt-1">Manage active crew and invites.</p>
+          <h1 className="text-3xl font-bold text-slate-900">Team & Wages</h1>
+          <p className="text-slate-500 mt-1">Manage active crew, invites, and pay rates.</p>
         </div>
 
         <div className="flex flex-col md:flex-row gap-3 w-full md:w-auto">
@@ -280,12 +294,43 @@ export default function Team() {
 
                 {/* Role Badge & Controls */}
                 <div className="flex items-center gap-4 w-full md:w-auto justify-between md:justify-end">
+                  
+                  {/* WAGE SECTION (New) */}
+                  {userProfile.role === 'admin' && (
+                    <div className="min-w-[140px] text-right">
+                      {editingWageId === member.id ? (
+                        <div className="flex items-center gap-1 bg-white border border-amber-500 rounded p-1 shadow-sm">
+                          <span className="text-slate-400 text-xs">$</span>
+                          <input 
+                            type="number" 
+                            autoFocus 
+                            className="w-16 text-sm font-bold outline-none"
+                            value={tempWage}
+                            onChange={e => setTempWage(e.target.value)}
+                          />
+                          <button onClick={() => handleWageSave(member.id)} className="text-green-600 hover:bg-green-50 rounded p-1"><Check size={14}/></button>
+                          <button onClick={() => setEditingWageId(null)} className="text-red-400 hover:bg-red-50 rounded p-1"><X size={14}/></button>
+                        </div>
+                      ) : (
+                        <button 
+                          onClick={() => { setEditingWageId(member.id); setTempWage(member.wage || ''); }}
+                          className="flex items-center gap-1 text-slate-600 hover:text-amber-600 font-mono font-bold text-sm bg-slate-50 hover:bg-amber-50 px-3 py-1.5 rounded transition-colors border border-slate-200"
+                          title="Click to Edit Wage"
+                        >
+                          <DollarSign size={12} />
+                          {member.wage ? Number(member.wage).toFixed(2) : '0.00'}/hr
+                        </button>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Role Badge */}
                   <div className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wide border flex items-center gap-2 ${getRoleBadge(member.role)}`}>
                     {getRoleIcon(member.role)}
                     {member.role}
                   </div>
 
-                  {/* Admin Only Controls */}
+                  {/* Delete/Role Change (Admin Only) */}
                   {can(userProfile?.role, PERMISSIONS.CAN_DELETE_PROJECT) && member.id !== userProfile.id && (
                     <div className="flex items-center gap-2">
                       <select 
