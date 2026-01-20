@@ -31,8 +31,6 @@ export function AuthProvider({ children }) {
   }, [])
 
   async function fetchProfile(userId) {
-    // FIX: Changed from 'employees' to 'profiles'
-    // This is where we saved your 'admin' role
     const { data, error } = await supabase
       .from('profiles')
       .select('*')
@@ -58,6 +56,7 @@ export function AuthProvider({ children }) {
   return (
     <AuthContext.Provider value={{ 
       session, 
+      user: session?.user, // <--- THIS WAS MISSING!
       userProfile, 
       loading,
       isAdmin: userProfile?.role === 'admin',

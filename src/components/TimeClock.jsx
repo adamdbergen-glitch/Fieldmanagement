@@ -4,33 +4,45 @@ import { useAuth } from '../contexts/AuthContext'
 import { MapPin, Clock, Loader2, AlertTriangle, Play, Square } from 'lucide-react'
 
 export default function TimeClock({ projectId = null }) {
-  const { user } = useAuth()
+  const { user, loading } = useAuth() // 1. Get loading state
   const [status, setStatus] = useState('loading')
   const [currentLog, setCurrentLog] = useState(null)
   const [gpsLoading, setGpsLoading] = useState(false)
   const [error, setError] = useState(null)
   const [elapsed, setElapsed] = useState('00:00:00')
 
+  // EFFECT 1: Check Status ONLY when user loads
   useEffect(() => {
-    if(user) checkStatus()
-    
-    const interval = setInterval(() => {
-      if (currentLog?.clock_in_time && !currentLog.clock_out_time) {
+    if (!loading && user) {
+      checkStatus()
+    }
+  }, [user, loading])
+
+  // EFFECT 2: Handle the Timer (Independent of DB fetching)
+  useEffect(() => {
+    let interval
+    if (status === 'clocked-in' && currentLog?.clock_in_time) {
+      interval = setInterval(() => {
         const start = new Date(currentLog.clock_in_time)
         const now = new Date()
         const diff = now - start
         
-        const h = Math.floor(diff / 3600000).toString().padStart(2, '0')
-        const m = Math.floor((diff % 3600000) / 60000).toString().padStart(2, '0')
-        const s = Math.floor((diff % 60000) / 1000).toString().padStart(2, '0')
-        setElapsed(`${h}:${m}:${s}`)
-      }
-    }, 1000)
+        // Prevent negative time
+        if (diff >= 0) {
+          const h = Math.floor(diff / 3600000).toString().padStart(2, '0')
+          const m = Math.floor((diff % 3600000) / 60000).toString().padStart(2, '0')
+          const s = Math.floor((diff % 60000) / 1000).toString().padStart(2, '0')
+          setElapsed(`${h}:${m}:${s}`)
+        }
+      }, 1000)
+    }
     return () => clearInterval(interval)
-  }, [currentLog, user])
+  }, [status, currentLog]) // Only re-run if status changes
 
   const checkStatus = async () => {
     try {
+      if (!user) return
+
       const { data, error } = await supabase
         .from('time_logs')
         .select('*')
@@ -50,7 +62,6 @@ export default function TimeClock({ projectId = null }) {
       }
     } catch (err) {
       console.error("Error checking time clock status:", err)
-      // If table doesn't exist or RLS fails, we default to clocked out so UI shows something
       setStatus('clocked-out') 
     }
   }
@@ -62,7 +73,7 @@ export default function TimeClock({ projectId = null }) {
       }
       navigator.geolocation.getCurrentPosition(
         (position) => resolve(position.coords),
-        (err) => reject(new Error("GPS Permission Denied")),
+        (err) => reject(new Error("GPS Permission Denied. Please enable location services.")),
         { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
       )
     })
@@ -85,6 +96,7 @@ export default function TimeClock({ projectId = null }) {
         .single()
 
       if (error) throw error
+      
       setCurrentLog(data)
       setStatus('clocked-in')
     } catch (err) {
@@ -110,6 +122,7 @@ export default function TimeClock({ projectId = null }) {
         .eq('id', currentLog.id)
 
       if (error) throw error
+
       setStatus('clocked-out')
       setCurrentLog(null)
       setElapsed('00:00:00')
@@ -120,7 +133,7 @@ export default function TimeClock({ projectId = null }) {
     }
   }
 
-  if (status === 'loading') return <div className="p-6 bg-white rounded-xl shadow-sm border border-slate-100 animate-pulse h-32"></div>
+  if (loading || status === 'loading') return <div className="p-6 bg-white rounded-xl shadow-sm border border-slate-100 animate-pulse h-32"></div>
 
   return (
     <div className={`p-6 rounded-xl border shadow-sm transition-all ${
