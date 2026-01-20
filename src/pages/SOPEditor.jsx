@@ -2,12 +2,14 @@ import React, { useState, useEffect } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { 
-  ArrowLeft, Save, Plus, Trash2, GripVertical, Type, CheckSquare, Loader2 
+  ArrowLeft, Save, Plus, Trash2, GripVertical, Type, CheckSquare, Loader2
 } from 'lucide-react'
+import { useAuth } from '../contexts/AuthContext'
 
 export default function SOPEditor() {
-  const { id } = useParams() // If ID exists, we are editing
+  const { id } = useParams()
   const navigate = useNavigate()
+  const { userProfile } = useAuth()
   const [loading, setLoading] = useState(false)
   
   // Basic Info
@@ -15,10 +17,17 @@ export default function SOPEditor() {
   const [category, setCategory] = useState('')
   
   // The List Items
-  // Structure: { id: temp_id, text: string, is_header: boolean }
   const [items, setItems] = useState([
-    { id: Date.now(), text: '', is_header: false } // Start with one empty item
+    { id: Date.now(), text: '', is_header: false }
   ])
+
+  // --- SECURITY CHECK ---
+  useEffect(() => {
+    // If profile is loaded and NOT admin, kick them out
+    if (userProfile && userProfile.role !== 'admin') {
+      navigate('/sops')
+    }
+  }, [userProfile, navigate])
 
   // Fetch data if editing
   useEffect(() => {
@@ -29,13 +38,11 @@ export default function SOPEditor() {
 
   const fetchSOP = async () => {
     setLoading(true)
-    // 1. Get SOP Details
     const { data: sop } = await supabase.from('sops').select('*').eq('id', id).single()
     if (sop) {
       setTitle(sop.title)
       setCategory(sop.category)
     }
-    // 2. Get Items
     const { data: sopItems } = await supabase.from('sop_items').select('*').eq('sop_id', id).order('sort_order')
     if (sopItems) {
       setItems(sopItems.map(i => ({ id: i.id, text: i.item_text, is_header: i.is_header })))
@@ -62,6 +69,10 @@ export default function SOPEditor() {
 
   const handleSave = async () => {
     if (!title.trim()) return alert("Please enter a Title")
+    
+    // Double-check permission before saving
+    if (userProfile?.role !== 'admin') return alert("Unauthorized")
+
     setLoading(true)
 
     try {
@@ -71,7 +82,7 @@ export default function SOPEditor() {
       const { data: sopData, error: sopError } = await supabase
         .from('sops')
         .upsert({ 
-          id: id, // if undefined, it creates new
+          id: id,
           title, 
           category 
         })
@@ -81,7 +92,7 @@ export default function SOPEditor() {
       if (sopError) throw sopError
       sopId = sopData.id
 
-      // 2. Delete old items (simplest way to handle re-ordering/deleting)
+      // 2. Delete old items (simplest way to handle re-ordering)
       if (id) {
         await supabase.from('sop_items').delete().eq('sop_id', sopId)
       }
@@ -94,7 +105,7 @@ export default function SOPEditor() {
         sort_order: index
       }))
 
-      // Filter out empty lines before saving to keep it clean
+      // Filter out empty lines
       const validItems = itemsToInsert.filter(i => i.item_text.trim() !== '')
 
       if (validItems.length > 0) {
@@ -110,6 +121,9 @@ export default function SOPEditor() {
       setLoading(false)
     }
   }
+
+  // If unauthorized, show nothing while redirecting
+  if (userProfile?.role !== 'admin') return null
 
   if (loading && id && !title) return <div className="p-8 text-center"><Loader2 className="animate-spin inline text-amber-500"/></div>
 
@@ -156,22 +170,18 @@ export default function SOPEditor() {
       <div className="space-y-3">
         {items.map((item, index) => (
           <div key={item.id} className="group flex items-center gap-3 animate-in fade-in slide-in-from-bottom-2 duration-300">
-            {/* Drag Handle Visual */}
             <div className="text-slate-300 cursor-move"><GripVertical size={20} /></div>
 
-            {/* Input Wrapper */}
             <div className={`flex-1 flex items-center bg-white border transition-colors rounded-lg overflow-hidden ${
               item.is_header ? 'border-slate-300 bg-slate-50' : 'border-slate-200 hover:border-amber-300'
             }`}>
               
-              {/* Icon Indicator */}
               <div className={`w-10 h-10 flex items-center justify-center shrink-0 ${
                 item.is_header ? 'text-slate-600 font-bold' : 'text-slate-400'
               }`}>
                 {item.is_header ? <Type size={18} /> : <CheckSquare size={18} />}
               </div>
 
-              {/* Text Input */}
               <input 
                 className={`flex-1 p-3 bg-transparent focus:outline-none ${
                   item.is_header ? 'font-bold text-slate-800' : 'text-slate-600'
@@ -185,7 +195,6 @@ export default function SOPEditor() {
               />
             </div>
 
-            {/* Delete Button */}
             <button 
               onClick={() => removeItem(index)}
               className="text-slate-300 hover:text-red-400 p-2 opacity-0 group-hover:opacity-100 transition-opacity"

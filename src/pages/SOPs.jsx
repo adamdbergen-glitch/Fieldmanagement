@@ -4,26 +4,20 @@ import { supabase } from '../lib/supabase'
 import { Book, Search, Plus, X, Trash2, ChevronRight, ListChecks, Edit } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 
-// REMOVED permissions import to rely on strict role check
-// import { can, PERMISSIONS } from '../lib/permissions'
-
 export default function SOPs() {
   const navigate = useNavigate()
-  const { userProfile } = useAuth()
-  
-  // STRICT ADMIN CHECK
-  const isAdmin = userProfile?.role === 'admin'
+  // Use isAdmin from AuthContext for cleaner logic
+  const { isAdmin } = useAuth()
 
   const [sops, setSops] = useState([])
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState('')
   
-  // Modal State (For viewing the manual)
   const [selectedSop, setSelectedSop] = useState(null)
   const [checklistItems, setChecklistItems] = useState([])
   const [loadingItems, setLoadingItems] = useState(false)
 
-  // 1. Fetch the Library on Load
+  // 1. Fetch the Library
   useEffect(() => {
     fetchSOPs()
   }, [])
@@ -46,7 +40,7 @@ export default function SOPs() {
     }
   }
 
-  // 2. Fetch Steps when a Card is Clicked
+  // 2. Fetch Steps
   async function handleViewSop(sop) {
     setSelectedSop(sop)
     setLoadingItems(true)
@@ -68,8 +62,8 @@ export default function SOPs() {
 
   // 3. Delete Action (Admins Only)
   async function handleDelete(id, e) {
-    e.stopPropagation() // Stop the card from opening
-    if (!window.confirm('Are you sure you want to delete this SOP? This cannot be undone.')) return
+    e.stopPropagation() 
+    if (!window.confirm('Are you sure you want to delete this SOP?')) return
     
     const { error } = await supabase.from('sops').delete().eq('id', id)
     if (error) alert(error.message)
@@ -79,7 +73,6 @@ export default function SOPs() {
     }
   }
 
-  // Filter Logic
   const filteredSops = sops.filter(s => 
     s.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
     (s.category && s.category.toLowerCase().includes(searchTerm.toLowerCase()))
@@ -108,7 +101,7 @@ export default function SOPs() {
             />
           </div>
 
-          {/* CREATE BUTTON (Restricted to Admin) */}
+          {/* CREATE BUTTON (Restricted) */}
           {isAdmin && (
             <button 
               onClick={() => navigate('/sops/new')}
@@ -162,10 +155,9 @@ export default function SOPs() {
                   Read Manual <ChevronRight size={16} />
                 </span>
                 
-                {/* Admin Actions (Restricted) */}
+                {/* Admin Actions */}
                 {isAdmin && (
                   <div className="flex gap-1">
-                    {/* EDIT BUTTON */}
                     <button 
                       onClick={(e) => {
                         e.stopPropagation()
@@ -176,7 +168,6 @@ export default function SOPs() {
                       <Edit size={16} />
                     </button>
 
-                    {/* DELETE BUTTON */}
                     <button 
                       onClick={(e) => handleDelete(sop.id, e)}
                       className="text-slate-300 hover:text-red-500 p-2 hover:bg-red-50 rounded transition-colors"
@@ -191,12 +182,11 @@ export default function SOPs() {
         )}
       </div>
 
-      {/* READING MODAL (The Reference Manual View) */}
+      {/* READING MODAL */}
       {selectedSop && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col overflow-hidden animate-in zoom-in-95 duration-200">
             
-            {/* Modal Header */}
             <div className="px-8 py-6 border-b border-slate-100 flex justify-between items-start bg-slate-50">
               <div>
                 <span className="text-xs font-bold text-amber-600 uppercase tracking-widest mb-1 block">
@@ -204,15 +194,11 @@ export default function SOPs() {
                 </span>
                 <h2 className="text-2xl font-bold text-slate-900">{selectedSop.title}</h2>
               </div>
-              <button 
-                onClick={() => setSelectedSop(null)}
-                className="bg-white p-2 rounded-full text-slate-400 hover:text-slate-800 hover:bg-slate-200 transition-all shadow-sm"
-              >
+              <button onClick={() => setSelectedSop(null)} className="bg-white p-2 rounded-full text-slate-400 hover:text-slate-800 hover:bg-slate-200 transition-all shadow-sm">
                 <X size={24} />
               </button>
             </div>
 
-            {/* Modal Content (Scrollable List) */}
             <div className="p-8 overflow-y-auto flex-1">
               {loadingItems ? (
                 <div className="text-center py-10 text-slate-400">Loading steps...</div>
@@ -221,7 +207,6 @@ export default function SOPs() {
                   {checklistItems.map((item) => (
                     <div key={item.id}>
                       {item.is_header ? (
-                        // HEADER ROW (PHASES)
                         <div className="mt-8 mb-3 pb-2 border-b border-slate-200 first:mt-0">
                            <h4 className="font-bold text-slate-900 text-lg flex items-center gap-2">
                              <ListChecks size={20} className="text-amber-500" />
@@ -229,7 +214,6 @@ export default function SOPs() {
                            </h4>
                         </div>
                       ) : (
-                        // STANDARD ITEM ROW
                         <div className="flex gap-4 items-start py-1 pl-2">
                           <div className="shrink-0 mt-2">
                             <div className="w-1.5 h-1.5 rounded-full bg-slate-300"></div>
@@ -241,29 +225,19 @@ export default function SOPs() {
                       )}
                     </div>
                   ))}
-                  
-                  {checklistItems.length === 0 && (
-                    <p className="text-center text-slate-400 italic py-10">
-                      No detailed steps found for this SOP.
-                    </p>
-                  )}
+                  {checklistItems.length === 0 && <p className="text-center text-slate-400 italic py-10">No detailed steps found.</p>}
                 </div>
               )}
             </div>
 
-            {/* Modal Footer */}
             <div className="p-6 border-t border-slate-100 bg-slate-50 flex justify-end">
-              <button 
-                onClick={() => setSelectedSop(null)}
-                className="px-6 py-2 bg-slate-900 text-white font-bold rounded-lg hover:bg-slate-800 transition-colors shadow-lg"
-              >
+              <button onClick={() => setSelectedSop(null)} className="px-6 py-2 bg-slate-900 text-white font-bold rounded-lg hover:bg-slate-800 transition-colors shadow-lg">
                 Close Manual
               </button>
             </div>
           </div>
         </div>
       )}
-
     </div>
   )
 }
