@@ -3,7 +3,7 @@ import { Outlet, Link, useLocation } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { 
   LayoutDashboard, Folder, Users, LogOut, Book, Calendar, UserCog, 
-  Menu, X // <--- Added Icons for Mobile Menu
+  Menu, X, Clock // <--- 1. ADDED CLOCK ICON
 } from 'lucide-react'
 
 // 1. IMPORT CONFIG (For White-Labeling)
@@ -50,13 +50,6 @@ export default function Layout() {
       </div>
 
       {/* --- SIDEBAR --- */}
-      {/* TRANSFORMATION EXPLAINED:
-         1. 'fixed inset-y-0': Sticks to side on mobile
-         2. 'z-50': Sits on top of everything
-         3. 'md:relative': Returns to normal side-by-side layout on Desktop
-         4. '-translate-x-full': Hidden by default on mobile
-         5. 'translate-x-0': Shown when isMobileOpen is true
-      */}
       <aside className={`
         fixed inset-y-0 left-0 z-50 w-64 bg-slate-900 text-white flex flex-col transition-transform duration-300 ease-in-out shadow-2xl md:shadow-none
         md:relative md:translate-x-0 
@@ -116,6 +109,14 @@ export default function Layout() {
             </Link>
           )}
 
+          {/* --- 2. NEW TIMESHEETS LINK (ADMIN ONLY) --- */}
+          {userRole === 'admin' && (
+            <Link to="/timesheets" className={linkClass('/timesheets')}>
+              <Clock size={20} />
+              Timesheets
+            </Link>
+          )}
+
           <Link to="/sops" className={linkClass('/sops')}>
             <Book size={20} />
             SOP Library
@@ -140,7 +141,6 @@ export default function Layout() {
       </aside>
 
       {/* --- OVERLAY BACKDROP (Mobile Only) --- */}
-      {/* Clicking this dark background closes the menu */}
       {isMobileOpen && (
         <div 
           className="fixed inset-0 bg-black/50 z-40 md:hidden backdrop-blur-sm"
@@ -149,7 +149,6 @@ export default function Layout() {
       )}
 
       {/* --- MAIN CONTENT AREA --- */}
-      {/* Added pt-16 on mobile to push content down below the header */}
       <main className="flex-1 overflow-auto relative w-full pt-16 md:pt-0">
         <div className="p-4 md:p-8">
           <Outlet />
