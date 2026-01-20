@@ -2,8 +2,8 @@ import React, { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
-import { format, parseISO, differenceInMinutes, addDays, startOfMonth, endOfMonth, setDate, isAfter, isBefore, endOfDay } from 'date-fns'
-import { Clock, Save, Loader2, Calendar, User, Edit2, X, Settings, MapPin, Plus, Briefcase, AlertCircle } from 'lucide-react'
+import { format, parseISO, differenceInMinutes, addDays, startOfMonth, endOfMonth, setDate, isFuture, isBefore } from 'date-fns' // <--- Added validation imports
+import { Clock, Save, Loader2, Calendar, User, Edit2, X, Settings, MapPin, Plus, Briefcase, AlertTriangle, AlertCircle } from 'lucide-react'
 
 export default function Timesheets() {
   const queryClient = useQueryClient()
@@ -18,17 +18,16 @@ export default function Timesheets() {
     queryKey: ['payroll_config'],
     queryFn: async () => {
       const { data } = await supabase.from('app_settings').select('setting_value').eq('setting_key', 'payroll_config').single()
-      // Default to biweekly if not found
       return data?.setting_value || { 
         frequency: 'biweekly', 
         anchor_date: '2025-01-01', 
-        cutoff_day: 0, // 0 = No offset
+        cutoff_day: 0, 
         auto_clockout: false 
       }
     }
   })
 
-  // --- FETCH LISTS FOR DROPDOWNS ---
+  // --- FETCH LISTS ---
   const { data: team } = useQuery({ 
     queryKey: ['team_list'], 
     queryFn: async () => (await supabase.from('profiles').select('id, full_name').order('full_name')).data 
@@ -91,38 +90,29 @@ export default function Timesheets() {
     onSuccess: () => { queryClient.invalidateQueries(['payroll_config']); setShowSettings(false) }
   })
 
-  // --- HELPER: Advanced Pay Period Calculator ---
+  // --- HELPER: Pay Period ---
   const getPayPeriodLabel = (dateString) => {
     if (!payrollConfig) return 'Loading...'
     const date = parseISO(dateString)
     
-    // 1. MONTHLY
     if (payrollConfig.frequency === 'monthly') {
       return format(date, 'MMMM yyyy')
     }
 
-    // 2. SEMI-MONTHLY (1st-15th, 16th-End)
     if (payrollConfig.frequency === 'semimonthly') {
       const day = date.getDate()
       const monthStart = startOfMonth(date)
       const monthEnd = endOfMonth(date)
-      
-      if (day <= 15) {
-        return `${format(monthStart, 'MMM 1')} - ${format(setDate(date, 15), 'MMM 15, yyyy')}`
-      } else {
-        return `${format(setDate(date, 16), 'MMM 16')} - ${format(monthEnd, 'MMM d, yyyy')}`
-      }
+      return day <= 15 
+        ? `${format(monthStart, 'MMM 1')} - ${format(setDate(date, 15), 'MMM 15, yyyy')}`
+        : `${format(setDate(date, 16), 'MMM 16')} - ${format(monthEnd, 'MMM d, yyyy')}`
     }
 
-    // 3. WEEKLY / BI-WEEKLY (Anchor Date Logic)
     const anchor = parseISO(payrollConfig.anchor_date)
     const freqDays = payrollConfig.frequency === 'weekly' ? 7 : 14 
-    
-    // Calculate periods since anchor
     const diffTime = date.getTime() - anchor.getTime()
     const diffDays = Math.floor(diffTime / (1000 * 3600 * 24))
     const periodIndex = Math.floor(diffDays / freqDays)
-    
     const periodStart = addDays(anchor, periodIndex * freqDays)
     const periodEnd = addDays(periodStart, freqDays - 1)
 
@@ -135,6 +125,46 @@ export default function Timesheets() {
     groups[period].push(log)
     return groups
   }, {})
+
+  // --- FORM HANDLER (GUARDRAILS + TIMEZONE FIX) ---
+  const handleFormSubmit = (e) => {
+    e.preventDefault();
+    const formData = new FormData(e.target);
+    
+    // 1. Get raw input values
+    const clockInVal = formData.get('clock_in')
+    const clockOutVal = formData.get('clock_out')
+    
+    // 2. Convert to Date objects
+    const start = new Date(clockInVal)
+    const end = clockOutVal ? new Date(clockOutVal) : null
+    
+    // 3. GUARDRAILS
+    if (isFuture(start)) {
+      return alert("Error: Clock In time cannot be in the future.")
+    }
+    if (end && isFuture(end)) {
+      return alert("Error: Clock Out time cannot be in the future.")
+    }
+    if (end && isBefore(end, start)) {
+      return alert("Error: Clock Out time cannot be BEFORE Clock In time (Negative hours).")
+    }
+
+    // 4. PREPARE PAYLOAD (Convert to ISO UTC)
+    // The browser automatically handles the timezone conversion when we call .toISOString() on a Date object created from local input.
+    const payload = {
+      clock_in_time: start.toISOString(),
+      clock_out_time: end ? end.toISOString() : null,
+      admin_notes: formData.get('notes'),
+      project_id: formData.get('project_id')
+    }
+
+    if (isCreating) {
+      createLogMutation.mutate({ ...payload, user_id: formData.get('user_id') })
+    } else {
+      updateLogMutation.mutate({ ...payload, id: editingLog.id })
+    }
+  }
 
   if (authLoading || isQueryLoading) return <div className="p-12 text-center"><Loader2 className="animate-spin inline text-amber-500 mr-2"/> Loading...</div>
   if (!logs) return <div className="p-12 text-center border-2 border-dashed border-slate-200 rounded-xl m-8"><p className="text-slate-500">Unable to load timesheets.</p></div>
@@ -253,14 +283,9 @@ export default function Timesheets() {
             </table>
           </div>
         ))}
-        {groupedLogs && Object.keys(groupedLogs).length === 0 && (
-           <div className="p-12 text-center border-2 border-dashed border-slate-200 rounded-xl bg-slate-50 text-slate-400">
-              No time logs found. Clock in on the Dashboard to get started!
-           </div>
-        )}
       </div>
 
-      {/* ADVANCED PAYROLL SETTINGS MODAL */}
+      {/* SETTINGS MODAL */}
       {showSettings && (
         <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-md p-6">
@@ -276,8 +301,6 @@ export default function Timesheets() {
               })
             }}>
               <div className="space-y-4">
-                
-                {/* Frequency */}
                 <div>
                   <label className="block text-sm font-bold text-slate-700 mb-1">Pay Frequency</label>
                   <select name="frequency" defaultValue={payrollConfig?.frequency} className="w-full p-2 border border-slate-300 rounded bg-white">
@@ -287,32 +310,20 @@ export default function Timesheets() {
                     <option value="monthly">Monthly (Calendar Month)</option>
                   </select>
                 </div>
-
-                {/* Anchor Date (Only needed for Weekly/Bi-Weekly) */}
                 <div>
                   <label className="block text-sm font-bold text-slate-700 mb-1">Anchor Date</label>
                   <input type="date" name="anchor_date" defaultValue={payrollConfig?.anchor_date} className="w-full p-2 border border-slate-300 rounded" />
-                  <p className="text-xs text-slate-400 mt-1">Start date for Weekly/Bi-Weekly cycles.</p>
                 </div>
-
-                {/* Cutoff Settings */}
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-bold text-slate-700 mb-1">Cutoff Offset</label>
                     <input type="number" name="cutoff_day" defaultValue={payrollConfig?.cutoff_day || 0} className="w-full p-2 border border-slate-300 rounded" />
-                    <p className="text-[10px] text-slate-400">Days to process payroll.</p>
                   </div>
                   <div className="flex items-center gap-2 pt-6">
                     <input type="checkbox" name="auto_clockout" defaultChecked={payrollConfig?.auto_clockout} className="w-5 h-5 accent-amber-500" />
                     <label className="text-sm font-bold text-slate-700">Auto-Close @ 23:59</label>
                   </div>
                 </div>
-                
-                <div className="bg-amber-50 p-3 rounded border border-amber-100 text-xs text-amber-800 flex items-start gap-2">
-                  <AlertCircle size={14} className="mt-0.5 shrink-0"/>
-                  <p>Enabling "Auto-Close" will mark shifts as complete at midnight. Overnight crews should verify their hours manually.</p>
-                </div>
-
               </div>
               <div className="flex gap-3 pt-6">
                 <button type="button" onClick={() => setShowSettings(false)} className="flex-1 py-2 font-bold text-slate-500 hover:bg-slate-100 rounded">Cancel</button>
@@ -336,29 +347,8 @@ export default function Timesheets() {
               </button>
             </div>
             
-            <form onSubmit={(e) => {
-              e.preventDefault();
-              const formData = new FormData(e.target);
-              
-              const payload = {
-                clock_in_time: formData.get('clock_in'),
-                clock_out_time: formData.get('clock_out') || null,
-                admin_notes: formData.get('notes'),
-                project_id: formData.get('project_id')
-              }
-
-              if (isCreating) {
-                createLogMutation.mutate({ 
-                  ...payload, 
-                  user_id: formData.get('user_id') 
-                })
-              } else {
-                updateLogMutation.mutate({ 
-                  ...payload, 
-                  id: editingLog.id 
-                })
-              }
-            }}>
+            {/* NEW FORM HANDLER */}
+            <form onSubmit={handleFormSubmit}>
               <div className="space-y-3">
                 {isCreating && (
                   <div>
@@ -392,6 +382,7 @@ export default function Timesheets() {
                     <input 
                       type="datetime-local" 
                       name="clock_in" 
+                      // Format current value safely
                       defaultValue={editingLog ? format(parseISO(editingLog.clock_in_time), "yyyy-MM-dd'T'HH:mm") : ''} 
                       className="w-full p-2 border rounded" 
                       required 
@@ -408,6 +399,13 @@ export default function Timesheets() {
                   </div>
                 </div>
                 
+                {isCreating && (
+                  <div className="flex gap-2 items-center text-xs text-amber-600 bg-amber-50 p-2 rounded">
+                    <AlertTriangle size={14} />
+                    <p>Times entered are in your local timezone.</p>
+                  </div>
+                )}
+
                 <div>
                   <label className="block text-sm font-bold text-slate-700">Notes</label>
                   <textarea name="notes" defaultValue={editingLog?.admin_notes} className="w-full p-2 border rounded" />
