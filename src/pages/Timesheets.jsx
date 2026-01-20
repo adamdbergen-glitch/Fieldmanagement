@@ -23,7 +23,8 @@ export default function Timesheets() {
 
   // --- 2. FETCH LOGS (Filtered by Role) ---
   const { data: logs, isLoading } = useQuery({
-    queryKey: ['time_logs', user.id],
+    queryKey: ['time_logs', user?.id], // <--- FIX: Added safe check (user?.id)
+    enabled: !!user?.id, // <--- FIX: Only run query if user exists
     queryFn: async () => {
       let query = supabase
         .from('time_logs')
@@ -92,7 +93,11 @@ export default function Timesheets() {
     return groups
   }, {})
 
+  // Loading State
   if (isLoading) return <div className="p-8 text-center"><Loader2 className="animate-spin inline text-amber-500"/> Loading timesheets...</div>
+  
+  // Safe Fallback if logs failed to load
+  if (!logs) return <div className="p-8 text-center text-slate-400">Unable to load logs. Please try refreshing.</div>
 
   return (
     <div className="max-w-7xl mx-auto p-4 md:p-8">
@@ -186,6 +191,13 @@ export default function Timesheets() {
             </table>
           </div>
         ))}
+        
+        {/* Empty State */}
+        {groupedLogs && Object.keys(groupedLogs).length === 0 && (
+           <div className="p-12 text-center border-2 border-dashed border-slate-200 rounded-xl bg-slate-50 text-slate-400">
+              No time logs found for your account. Clock in to get started!
+           </div>
+        )}
       </div>
 
       {/* --- SETTINGS MODAL (Admin Only) --- */}
@@ -212,7 +224,7 @@ export default function Timesheets() {
                 <div>
                   <label className="block text-sm font-bold text-slate-700 mb-1">Anchor Date (Start of a Period)</label>
                   <input type="date" name="anchor_date" defaultValue={payrollConfig?.anchor_date} className="w-full p-2 border border-slate-300 rounded" required />
-                  <p className="text-xs text-slate-500 mt-1">Pick ANY past date that was a payday or period start. The app calculates future cycles from here.</p>
+                  <p className="text-xs text-slate-500 mt-1">Pick ANY past date that was a payday or period start. The system will calculate future cycles from here.</p>
                 </div>
               </div>
               <div className="flex gap-3 pt-6">
