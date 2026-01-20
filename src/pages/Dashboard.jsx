@@ -2,14 +2,19 @@ import React, { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
-import { format, parseISO } from 'date-fns'
-import TimeClock from '../components/TimeClock' // <--- NEW IMPORT
+import { format, parseISO, addDays, differenceInCalendarDays, startOfMonth, endOfMonth, setDate, differenceInMinutes } from 'date-fns' // <--- Updated imports
+import { DollarSign, Clock, Calendar } from 'lucide-react' // <--- Updated icons
+import TimeClock from '../components/TimeClock'
 
 export default function Dashboard() {
-  const { userProfile } = useAuth()
+  const { user, userProfile } = useAuth() // Added 'user' to get ID reliably
   const [projects, setProjects] = useState([])
   const [loading, setLoading] = useState(true)
+  
+  // NEW: Payroll Stats State
+  const [stats, setStats] = useState({ hours: 0, daysUntilPay: 0, payDate: null, periodLabel: 'Loading...' })
 
+  // 1. FETCH ACTIVE PROJECTS (Existing Logic)
   useEffect(() => {
     fetchActiveProjects()
   }, [])
@@ -19,10 +24,7 @@ export default function Dashboard() {
       setLoading(true)
       const { data, error } = await supabase
         .from('projects')
-        .select(`
-          *,
-          customer:customers (name)
-        `)
+        .select(`*, customer:customers (name)`)
         .in('status', ['New', 'scheduled', 'in_progress', 'paused', 'In Progress']) 
         .order('start_date', { ascending: true, nullsFirst: false })
         .limit(5)
@@ -35,6 +37,63 @@ export default function Dashboard() {
       setLoading(false)
     }
   }
+
+  // 2. NEW: FETCH PAYROLL DATA (The Widget Logic)
+  useEffect(() => {
+    async function fetchPayrollData() {
+      if (!user) return
+
+      // A. Get Payroll Settings
+      const { data: settings } = await supabase.from('app_settings').select('setting_value').eq('setting_key', 'payroll_config').single()
+      const config = settings?.setting_value || { frequency: 'biweekly', anchor_date: '2025-01-10', pay_delay: 7 }
+
+      // B. Calculate Current Period Range based on TODAY
+      const today = new Date()
+      let start, end
+      
+      if (config.frequency === 'monthly') {
+        start = startOfMonth(today); end = endOfMonth(today);
+      } else if (config.frequency === 'semimonthly') {
+        const day = today.getDate()
+        if (day <= 15) { start = startOfMonth(today); end = setDate(today, 15); }
+        else { start = setDate(today, 16); end = endOfMonth(today); }
+      } else {
+        // Weekly / Bi-Weekly Logic
+        const anchor = parseISO(config.anchor_date)
+        const freqDays = config.frequency === 'weekly' ? 7 : 14 
+        const diffTime = today.getTime() - anchor.getTime()
+        const diffDays = Math.floor(diffTime / (1000 * 3600 * 24))
+        const periodIndex = Math.floor(diffDays / freqDays)
+        start = addDays(anchor, periodIndex * freqDays)
+        end = addDays(start, freqDays - 1)
+      }
+
+      // C. Calculate Pay Date (End of Period + Pay Delay)
+      const payDate = addDays(end, parseInt(config.pay_delay || 7))
+      const daysUntil = differenceInCalendarDays(payDate, today)
+
+      // D. Fetch User's Hours for THIS Period
+      const { data: logs } = await supabase.from('time_logs')
+        .select('clock_in_time, clock_out_time')
+        .eq('user_id', user.id)
+        .gte('clock_in_time', start.toISOString())
+        .lte('clock_in_time', end.toISOString())
+      
+      const totalMinutes = logs?.reduce((sum, log) => {
+        if (!log.clock_out_time) return sum
+        return sum + differenceInMinutes(parseISO(log.clock_out_time), parseISO(log.clock_in_time))
+      }, 0) || 0
+
+      setStats({
+        hours: (totalMinutes / 60).toFixed(1),
+        daysUntilPay: daysUntil,
+        payDate: payDate,
+        periodLabel: `${format(start, 'MMM d')} - ${format(end, 'MMM d')}`
+      })
+    }
+
+    fetchPayrollData()
+  }, [user])
 
   const getStatusColor = (status) => {
     const s = status?.toLowerCase() || ''
@@ -68,22 +127,47 @@ export default function Dashboard() {
         </Link>
       </div>
 
-      {/* 2. TIME CLOCK (NEW) */}
+      {/* 2. TIME CLOCK & PAYROLL WIDGET */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Time Clock */}
         <div className="lg:col-span-1">
           <TimeClock />
         </div>
         
-        {/* STATS CARD (Moved here to sit next to clock on large screens) */}
-        <div className="lg:col-span-1 bg-white p-6 rounded-xl shadow-sm border border-slate-200 flex flex-col justify-center">
-          <h3 className="text-slate-400 text-xs font-bold uppercase tracking-wider mb-2">Active Projects</h3>
-          <p className="text-4xl font-black text-slate-800">{projects.length}</p>
-          <p className="text-slate-400 text-sm mt-1">Scheduled or In Progress</p>
-        </div>
+        {/* NEW: PAYROLL WIDGET (Replaces old Stats Card) */}
+        <div className="lg:col-span-2 bg-gradient-to-br from-slate-900 to-slate-800 rounded-xl p-6 text-white shadow-sm border border-slate-700 flex flex-col justify-between relative overflow-hidden">
+          {/* Decorative Background */}
+          <div className="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-full blur-3xl -mr-10 -mt-10"></div>
+          
+          <div className="flex justify-between items-start z-10">
+            <div>
+              <p className="text-slate-400 text-xs font-bold uppercase tracking-widest mb-1 flex items-center gap-2">
+                <Clock size={14} className="text-amber-500"/> Current Pay Period
+              </p>
+              <p className="text-slate-300 text-sm">{stats.periodLabel}</p>
+            </div>
+            <div className="text-right">
+              <div className="bg-white/10 border border-white/10 px-3 py-1 rounded-lg">
+                <p className="text-xs font-bold text-amber-300 uppercase tracking-wider">Pay Day</p>
+                <p className="text-lg font-bold text-white">
+                  {stats.payDate ? format(stats.payDate, 'MMM d') : '...'}
+                </p>
+              </div>
+            </div>
+          </div>
 
-        {/* Placeholder for Weather or other stats */}
-        <div className="hidden lg:flex lg:col-span-1 bg-slate-50 p-6 rounded-xl border border-dashed border-slate-300 items-center justify-center text-slate-400 text-sm font-medium">
-          Weather Widget Coming Soon
+          <div className="mt-6 flex items-end justify-between z-10">
+            <div>
+              <p className="text-5xl font-black text-white tracking-tight">{stats.hours}</p>
+              <p className="text-slate-400 text-sm font-medium mt-1">Hours Worked</p>
+            </div>
+            
+            <div className="text-right">
+              <span className={`text-sm font-bold px-3 py-1.5 rounded-full border ${stats.daysUntilPay <= 3 ? 'bg-amber-500/20 text-amber-300 border-amber-500/30' : 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'}`}>
+                {stats.daysUntilPay} Days Until Payday
+              </span>
+            </div>
+          </div>
         </div>
       </div>
 
