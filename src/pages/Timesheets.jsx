@@ -3,16 +3,16 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { format, parseISO, differenceInMinutes, addDays } from 'date-fns'
-import { Clock, Save, Loader2, Calendar, User, Edit2, X, Settings } from 'lucide-react'
+import { Clock, Save, Loader2, Calendar, User, Edit2, X, Settings, MapPin } from 'lucide-react'
 
 export default function Timesheets() {
   const queryClient = useQueryClient()
-  // 1. GET LOADING STATE FROM AUTH
   const { user, userProfile, loading: authLoading } = useAuth()
   
   const [editingLog, setEditingLog] = useState(null)
   const [showSettings, setShowSettings] = useState(false)
 
+  // --- 1. FETCH PAYROLL SETTINGS ---
   const { data: payrollConfig } = useQuery({
     queryKey: ['payroll_config'],
     queryFn: async () => {
@@ -21,6 +21,7 @@ export default function Timesheets() {
     }
   })
 
+  // --- 2. FETCH LOGS ---
   const { data: logs, isLoading: isQueryLoading } = useQuery({
     queryKey: ['time_logs', user?.id],
     enabled: !!user?.id,
@@ -40,6 +41,7 @@ export default function Timesheets() {
     }
   })
 
+  // --- 3. MUTATIONS ---
   const updateLogMutation = useMutation({
     mutationFn: async (updatedData) => {
       const { error } = await supabase.from('time_logs')
@@ -62,17 +64,20 @@ export default function Timesheets() {
     onSuccess: () => { queryClient.invalidateQueries(['payroll_config']); setShowSettings(false) }
   })
 
-  // Helper
+  // --- HELPER: Pay Period ---
   const getPayPeriodLabel = (dateString) => {
     if (!payrollConfig) return 'Loading...'
     const date = parseISO(dateString)
     const anchor = parseISO(payrollConfig.anchor_date)
     const freqDays = payrollConfig.frequency === 'weekly' ? 7 : 14 
+    
     const diffTime = date.getTime() - anchor.getTime()
     const diffDays = Math.floor(diffTime / (1000 * 3600 * 24))
+    
     const periodIndex = Math.floor(diffDays / freqDays)
     const periodStart = addDays(anchor, periodIndex * freqDays)
     const periodEnd = addDays(periodStart, freqDays - 1)
+
     return `${format(periodStart, 'MMM d')} - ${format(periodEnd, 'MMM d, yyyy')}`
   }
 
@@ -83,17 +88,14 @@ export default function Timesheets() {
     return groups
   }, {})
 
-  // --- 2. THE FIX: WAIT FOR AUTH TO FINISH ---
   if (authLoading || isQueryLoading) {
     return <div className="p-12 text-center"><Loader2 className="animate-spin inline text-amber-500 mr-2"/> Loading...</div>
   }
 
-  // --- 3. NOW IT'S SAFE TO CHECK IF LOGS FAILED ---
   if (!logs) {
     return (
       <div className="p-12 text-center border-2 border-dashed border-slate-200 rounded-xl m-8">
         <p className="text-slate-500 mb-2">Unable to load timesheets.</p>
-        <p className="text-sm text-slate-400">This usually means Database Permissions need to be reset.</p>
       </div>
     )
   }
@@ -164,10 +166,39 @@ export default function Timesheets() {
                         <div className="md:hidden text-xs text-slate-400 mb-1">
                             {format(parseISO(log.clock_in_time), 'MMM d')}
                         </div>
+                        
+                        {/* IN TIME + GPS LINK */}
                         <span className="text-green-700 font-bold">{format(parseISO(log.clock_in_time), 'h:mm a')}</span>
-                        <span className="text-slate-300 mx-1">-</span>
+                        {log.gps_in_lat && (
+                          <a 
+                            href={`https://www.google.com/maps?q=${log.gps_in_lat},${log.gps_in_long}`} 
+                            target="_blank" 
+                            rel="noreferrer"
+                            className="inline-block ml-1 text-slate-300 hover:text-blue-500"
+                            title="View Clock In Location"
+                          >
+                            <MapPin size={12} />
+                          </a>
+                        )}
+
+                        <span className="text-slate-300 mx-2">-</span>
+                        
+                        {/* OUT TIME + GPS LINK */}
                         {log.clock_out_time ? (
-                          <span className="text-slate-700">{format(parseISO(log.clock_out_time), 'h:mm a')}</span>
+                          <>
+                            <span className="text-slate-700">{format(parseISO(log.clock_out_time), 'h:mm a')}</span>
+                            {log.gps_out_lat && (
+                              <a 
+                                href={`https://www.google.com/maps?q=${log.gps_out_lat},${log.gps_out_long}`} 
+                                target="_blank" 
+                                rel="noreferrer"
+                                className="inline-block ml-1 text-slate-300 hover:text-blue-500"
+                                title="View Clock Out Location"
+                              >
+                                <MapPin size={12} />
+                              </a>
+                            )}
+                          </>
                         ) : (
                           <span className="text-amber-600 font-bold text-xs uppercase bg-amber-50 px-2 py-0.5 rounded">Active</span>
                         )}
@@ -194,6 +225,7 @@ export default function Timesheets() {
         )}
       </div>
 
+      {/* Settings & Edit Modals (Unchanged) */}
       {showSettings && (
         <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-md p-6">
