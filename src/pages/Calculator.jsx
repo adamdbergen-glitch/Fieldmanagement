@@ -1,15 +1,13 @@
-import React, { useState } from 'react'
-import { Calculator as CalcIcon, Truck, Info, AlertTriangle, ArrowDownToLine } from 'lucide-react'
+import React, { useState, useEffect } from 'react'
+import { Calculator as CalcIcon, Truck, Info, AlertTriangle, ArrowDownToLine, Maximize } from 'lucide-react'
 
 // WINNIPEG LANDSCAPE MATERIALS DATA
-// Density: Tons per Cubic Yard (Approximate for local limestone)
-// Compaction: % of volume lost when packed. (e.g. 0.20 = 20% loss)
 const MATERIALS = [
   { 
     id: 'base', 
     name: '3/4" Down Limestone (Base)', 
     density: 1.35, 
-    compaction: 0.20, // High compaction (fines)
+    compaction: 0.20, 
     unit: 'Yards',
     desc: 'Driveway/Patio Base. Compacts significantly.'
   },
@@ -17,7 +15,7 @@ const MATERIALS = [
     id: 'clear', 
     name: '3/4" Clean Limestone', 
     density: 1.25, 
-    compaction: 0.03, // Low compaction (no fines)
+    compaction: 0.03, 
     unit: 'Yards',
     desc: 'Drainage, window wells. Minimal compaction.'
   },
@@ -25,7 +23,7 @@ const MATERIALS = [
     id: 'quarter_down', 
     name: '1/4" Down Limestone (Bedding)', 
     density: 1.35, 
-    compaction: 0.15, // Better than sand for compaction
+    compaction: 0.15, 
     unit: 'Yards',
     desc: 'Superior paver bedding. Packs tight, deters ants.'
   },
@@ -49,7 +47,7 @@ const MATERIALS = [
     id: 'soil', 
     name: '4-Way Mix / Topsoil', 
     density: 1.1, 
-    compaction: 0.15, // Settles over time
+    compaction: 0.15, 
     unit: 'Yards',
     desc: 'Gardens, sod base. Will settle.'
   },
@@ -64,34 +62,43 @@ const MATERIALS = [
 ]
 
 export default function Calculator() {
+  // Inputs
   const [length, setLength] = useState('')
   const [width, setWidth] = useState('')
-  const [depth, setDepth] = useState(4) // Default 4 inches
-  const [waste, setWaste] = useState(10) // Default 10% waste
+  const [manualArea, setManualArea] = useState('') // The master "Area" input
+  
+  const [depth, setDepth] = useState(4)
+  const [waste, setWaste] = useState(10)
   const [material, setMaterial] = useState(MATERIALS[0])
 
-  // --- THE MATH ---
-  const l = parseFloat(length) || 0
-  const w = parseFloat(width) || 0
-  const d = parseFloat(depth) || 0
+  // --- LOGIC: AUTO-CALCULATE AREA ---
+  // If user types Length/Width, update Area automatically.
+  useEffect(() => {
+    const l = parseFloat(length)
+    const w = parseFloat(width)
+    if (!isNaN(l) && !isNaN(w)) {
+      setManualArea((l * w).toFixed(0))
+    }
+  }, [length, width])
 
-  // 1. Target Volume (The hole you need to fill)
-  const areaSqFt = l * w
-  const targetVolumeCuFt = areaSqFt * (d / 12)
+  // --- THE MATH ---
+  const d = parseFloat(depth) || 0
+  const finalAreaSqFt = parseFloat(manualArea) || 0
+
+  // 1. Target Volume
+  const targetVolumeCuFt = finalAreaSqFt * (d / 12)
   const targetVolumeCuYards = targetVolumeCuFt / 27
   
-  // 2. Compaction Factor
-  // Formula: Target / (1 - CompactionRate)
+  // 2. Compaction Factor (Target / (1 - Rate))
   const compactedVolumeYards = targetVolumeCuYards / (1 - material.compaction)
 
-  // 3. Apply Waste (Spillage, grading errors)
+  // 3. Apply Waste
   const wasteMultiplier = 1 + (waste / 100)
   const requiredYards = compactedVolumeYards * wasteMultiplier
   
-  // 4. Estimate Weight (For Truck Limits)
+  // 4. Estimate Weight
   const estimatedTons = requiredYards * material.density
 
-  // Stats for display
   const compactionAdded = requiredYards - (targetVolumeCuYards * wasteMultiplier)
 
   return (
@@ -110,35 +117,34 @@ export default function Calculator() {
 
       <div className="space-y-6">
         
-        {/* 1. MATERIAL SELECTOR */}
+        {/* 1. MATERIAL */}
         <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
           <label className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-3 block">1. Select Material</label>
-          <div className="grid grid-cols-1 gap-2">
-            <select 
-              className="w-full p-3 bg-slate-50 border border-slate-200 rounded-lg font-bold text-slate-700 text-lg focus:ring-2 focus:ring-amber-500 outline-none"
-              value={material.id}
-              onChange={(e) => setMaterial(MATERIALS.find(m => m.id === e.target.value))}
-            >
-              {MATERIALS.map(m => (
-                <option key={m.id} value={m.id}>{m.name}</option>
-              ))}
-            </select>
-          </div>
+          <select 
+            className="w-full p-3 bg-slate-50 border border-slate-200 rounded-lg font-bold text-slate-700 text-lg focus:ring-2 focus:ring-amber-500 outline-none"
+            value={material.id}
+            onChange={(e) => setMaterial(MATERIALS.find(m => m.id === e.target.value))}
+          >
+            {MATERIALS.map(m => (
+              <option key={m.id} value={m.id}>{m.name}</option>
+            ))}
+          </select>
           <p className="text-xs text-slate-500 mt-2 flex items-center gap-1">
             <Info size={12} /> {material.desc} (Compaction: {(material.compaction * 100).toFixed(0)}%)
           </p>
         </div>
 
-        {/* 2. DIMENSIONS */}
+        {/* 2. AREA INPUTS */}
         <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
-          <label className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-3 block">2. Target Dimensions (Finished)</label>
+          <label className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-3 block">2. Calculate Area</label>
+          
+          {/* Option A: Dimensions */}
           <div className="grid grid-cols-2 gap-4 mb-4">
             <div>
               <span className="block text-xs font-bold text-slate-500 mb-1">Length (ft)</span>
               <input 
-                type="number" 
-                inputMode="decimal"
-                className="w-full p-3 bg-slate-50 border border-slate-200 rounded-lg font-bold text-2xl focus:ring-2 focus:ring-amber-500 outline-none"
+                type="number" inputMode="decimal"
+                className="w-full p-3 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xl focus:ring-2 focus:ring-amber-500 outline-none"
                 placeholder="0"
                 value={length}
                 onChange={e => setLength(e.target.value)}
@@ -147,9 +153,8 @@ export default function Calculator() {
             <div>
               <span className="block text-xs font-bold text-slate-500 mb-1">Width (ft)</span>
               <input 
-                type="number" 
-                inputMode="decimal"
-                className="w-full p-3 bg-slate-50 border border-slate-200 rounded-lg font-bold text-2xl focus:ring-2 focus:ring-amber-500 outline-none"
+                type="number" inputMode="decimal"
+                className="w-full p-3 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xl focus:ring-2 focus:ring-amber-500 outline-none"
                 placeholder="0"
                 value={width}
                 onChange={e => setWidth(e.target.value)}
@@ -157,12 +162,37 @@ export default function Calculator() {
             </div>
           </div>
 
+          <div className="relative flex py-2 items-center">
+            <div className="flex-grow border-t border-slate-200"></div>
+            <span className="flex-shrink mx-4 text-xs font-bold text-slate-300 uppercase">OR Manual Area</span>
+            <div className="flex-grow border-t border-slate-200"></div>
+          </div>
+
+          {/* Option B: Direct Area Override */}
+          <div className="mt-2">
+             <span className="block text-xs font-bold text-amber-600 mb-1 flex items-center gap-1"><Maximize size={12}/> Total Area (sq ft) - <span className="text-slate-400 font-normal">Use for odd shapes</span></span>
+             <input 
+                type="number" inputMode="decimal"
+                className="w-full p-3 bg-amber-50 border border-amber-200 text-slate-900 rounded-lg font-black text-3xl focus:ring-2 focus:ring-amber-500 outline-none"
+                placeholder="0"
+                value={manualArea}
+                onChange={e => {
+                  setManualArea(e.target.value)
+                  // If user types here, we clear L/W to indicate manual mode
+                  if(length || width) { setLength(''); setWidth(''); }
+                }}
+              />
+          </div>
+        </div>
+
+        {/* 3. DEPTH & WASTE */}
+        <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
+          <label className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-3 block">3. Depth & Waste</label>
           <div className="grid grid-cols-2 gap-4">
              <div>
               <span className="block text-xs font-bold text-slate-500 mb-1">Finished Depth (in)</span>
               <input 
-                type="number" 
-                inputMode="decimal"
+                type="number" inputMode="decimal"
                 className="w-full p-3 bg-slate-50 border border-slate-200 rounded-lg font-bold text-2xl focus:ring-2 focus:ring-amber-500 outline-none"
                 value={depth}
                 onChange={e => setDepth(e.target.value)}
@@ -171,15 +201,15 @@ export default function Calculator() {
             <div>
               <span className="block text-xs font-bold text-slate-500 mb-1">Safety / Waste %</span>
               <div className="flex items-center gap-2">
-                 <button onClick={() => setWaste(5)} className={`flex-1 py-2 rounded font-bold text-sm border ${waste === 5 ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-slate-400 border-slate-200'}`}>5%</button>
-                 <button onClick={() => setWaste(10)} className={`flex-1 py-2 rounded font-bold text-sm border ${waste === 10 ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-slate-400 border-slate-200'}`}>10%</button>
-                 <button onClick={() => setWaste(15)} className={`flex-1 py-2 rounded font-bold text-sm border ${waste === 15 ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-slate-400 border-slate-200'}`}>15%</button>
+                 <button onClick={() => setWaste(5)} className={`flex-1 py-3 rounded-lg font-bold text-sm border transition-colors ${waste === 5 ? 'bg-slate-800 text-white border-slate-800' : 'bg-slate-50 text-slate-400 border-slate-200 hover:bg-slate-100'}`}>5%</button>
+                 <button onClick={() => setWaste(10)} className={`flex-1 py-3 rounded-lg font-bold text-sm border transition-colors ${waste === 10 ? 'bg-slate-800 text-white border-slate-800' : 'bg-slate-50 text-slate-400 border-slate-200 hover:bg-slate-100'}`}>10%</button>
+                 <button onClick={() => setWaste(15)} className={`flex-1 py-3 rounded-lg font-bold text-sm border transition-colors ${waste === 15 ? 'bg-slate-800 text-white border-slate-800' : 'bg-slate-50 text-slate-400 border-slate-200 hover:bg-slate-100'}`}>15%</button>
               </div>
             </div>
           </div>
         </div>
 
-        {/* 3. RESULTS CARD */}
+        {/* 4. RESULTS CARD */}
         <div className="bg-slate-900 rounded-xl p-6 text-white shadow-xl">
            <div className="flex justify-between items-start mb-6">
              <div>
@@ -189,8 +219,8 @@ export default function Calculator() {
                </h2>
              </div>
              <div className="text-right">
-                <p className="text-slate-500 text-xs font-bold uppercase">Area</p>
-                <p className="font-mono font-bold text-lg">{areaSqFt.toFixed(0)} ft²</p>
+                <p className="text-slate-500 text-xs font-bold uppercase">Total Area</p>
+                <p className="font-mono font-bold text-lg">{finalAreaSqFt.toFixed(0)} ft²</p>
              </div>
            </div>
 
@@ -227,10 +257,10 @@ export default function Calculator() {
 
         <div className="text-center">
           <button 
-            onClick={() => { setLength(''); setWidth(''); }} 
+            onClick={() => { setLength(''); setWidth(''); setManualArea(''); }} 
             className="text-slate-400 font-bold text-sm hover:text-slate-600 flex items-center justify-center gap-2 mx-auto"
           >
-             Reset Form
+             Reset Calculation
           </button>
         </div>
 

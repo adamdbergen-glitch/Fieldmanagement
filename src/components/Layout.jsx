@@ -3,7 +3,7 @@ import { Outlet, Link, useLocation } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { 
   LayoutDashboard, Folder, Users, LogOut, Book, Calendar, UserCog, 
-  Menu, X, Clock, Calculator // <--- 1. NEW IMPORT
+  Menu, X, Clock, Calculator, DollarSign // <--- 1. NEW IMPORT (DollarSign)
 } from 'lucide-react'
 
 // 1. IMPORT CONFIG (For White-Labeling)
@@ -109,13 +109,21 @@ export default function Layout() {
             </Link>
           )}
 
+          {/* FINANCIALS - ADMIN ONLY (NEW) */}
+          {can(userRole, PERMISSIONS.CAN_DELETE_PROJECT) && (
+            <Link to="/financials" className={linkClass('/financials')}>
+              <DollarSign size={20} />
+              Financials
+            </Link>
+          )}
+
           {/* --- TIMESHEETS LINK --- */}
           <Link to="/timesheets" className={linkClass('/timesheets')}>
             <Clock size={20} />
             Timesheets
           </Link>
 
-          {/* --- 2. NEW MATERIAL CALC LINK --- */}
+          {/* --- MATERIAL CALC LINK --- */}
           <Link to="/calculator" className={linkClass('/calculator')}>
              <Calculator size={20} />
              Material Calc

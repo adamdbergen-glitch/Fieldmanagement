@@ -15,7 +15,8 @@ import Calendar from './pages/Calendar'
 import Team from './pages/Team'
 import Timesheets from './pages/Timesheets'
 import CustomerPortal from './pages/CustomerPortal'
-import Calculator from './pages/Calculator' // <--- 1. NEW IMPORT
+import Calculator from './pages/Calculator' 
+import Financials from './pages/Financials' // <--- 1. NEW IMPORT
 
 // Create the client for data fetching
 const queryClient = new QueryClient()
@@ -47,7 +48,10 @@ export default function App() {
               <Route path="/timesheets" element={<Timesheets />} />
               
               {/* TOOLS */}
-              <Route path="/calculator" element={<Calculator />} /> {/* <--- 2. NEW ROUTE */}
+              <Route path="/calculator" element={<Calculator />} />
+              
+              {/* ADMIN FINANCIALS */}
+              <Route path="/financials" element={<Financials />} /> {/* <--- 2. NEW ROUTE */}
             </Route>
 
             <Route path="*" element={<Navigate to="/" replace />} />
