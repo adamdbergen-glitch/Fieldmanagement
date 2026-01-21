@@ -13,8 +13,9 @@ import SOPs from './pages/SOPs'
 import SOPEditor from './pages/SOPEditor'
 import Calendar from './pages/Calendar'
 import Team from './pages/Team'
-import Timesheets from './pages/Timesheets' // <--- 1. NEW IMPORT
+import Timesheets from './pages/Timesheets'
 import CustomerPortal from './pages/CustomerPortal'
+import Calculator from './pages/Calculator' // <--- 1. NEW IMPORT
 
 // Create the client for data fetching
 const queryClient = new QueryClient()
@@ -43,7 +44,10 @@ export default function App() {
 
               {/* TEAM & TIME ROUTES */}
               <Route path="/team" element={<Team />} />
-              <Route path="/timesheets" element={<Timesheets />} /> {/* <--- 2. NEW ROUTE */}
+              <Route path="/timesheets" element={<Timesheets />} />
+              
+              {/* TOOLS */}
+              <Route path="/calculator" element={<Calculator />} /> {/* <--- 2. NEW ROUTE */}
             </Route>
 
             <Route path="*" element={<Navigate to="/" replace />} />

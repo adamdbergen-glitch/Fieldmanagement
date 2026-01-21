@@ -3,7 +3,7 @@ import { Outlet, Link, useLocation } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { 
   LayoutDashboard, Folder, Users, LogOut, Book, Calendar, UserCog, 
-  Menu, X, Clock 
+  Menu, X, Clock, Calculator // <--- 1. NEW IMPORT
 } from 'lucide-react'
 
 // 1. IMPORT CONFIG (For White-Labeling)
@@ -109,10 +109,16 @@ export default function Layout() {
             </Link>
           )}
 
-          {/* --- TIMESHEETS LINK (VISIBLE TO EVERYONE NOW) --- */}
+          {/* --- TIMESHEETS LINK --- */}
           <Link to="/timesheets" className={linkClass('/timesheets')}>
             <Clock size={20} />
             Timesheets
+          </Link>
+
+          {/* --- 2. NEW MATERIAL CALC LINK --- */}
+          <Link to="/calculator" className={linkClass('/calculator')}>
+             <Calculator size={20} />
+             Material Calc
           </Link>
 
           <Link to="/sops" className={linkClass('/sops')}>
