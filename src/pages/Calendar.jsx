@@ -8,7 +8,7 @@ import parse from 'date-fns/parse'
 import startOfWeek from 'date-fns/startOfWeek'
 import getDay from 'date-fns/getDay'
 import enUS from 'date-fns/locale/en-US'
-import { differenceInCalendarDays } from 'date-fns' // Needed for calculating resize duration
+import { differenceInCalendarDays } from 'date-fns' 
 
 // 2. IMPORT STYLES
 import 'react-big-calendar/lib/css/react-big-calendar.css'
@@ -18,7 +18,7 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { can, PERMISSIONS } from '../lib/permissions'
 import { addWorkDays, shiftDateByWorkDays } from '../lib/dateUtils'
-import { AlertTriangle, Loader } from 'lucide-react'
+import { AlertTriangle, Loader, Check } from 'lucide-react'
 
 // Setup Date Localizer
 const locales = { 'en-US': enUS }
@@ -111,7 +111,6 @@ export default function Calendar() {
 
     try {
       // We update the Start Date. 
-      // Note: We are keeping the original duration logic, just shifting the start.
       const newStartISO = start.toISOString()
 
       const { error } = await supabase
@@ -141,7 +140,6 @@ export default function Calendar() {
 
     try {
       // Calculate new duration in days
-      // BigCalendar 'end' is exclusive, so diff(Fri, Mon) = 4 days (Mon, Tue, Wed, Thu)
       const daysDiff = differenceInCalendarDays(end, start)
       const newDuration = Math.max(1, daysDiff)
 
@@ -162,15 +160,38 @@ export default function Calendar() {
   }, [events, canEdit])
 
 
-  // --- RAIN DELAY / SCHEDULE SHIFT ---
+  // --- RAIN DELAY / SCHEDULE SHIFT (OPTIMIZED) ---
   const handleScheduleShift = async (days) => {
     const direction = days > 0 ? "Forward (+1 Day)" : "Backward (-1 Day)"
     if (!window.confirm(`SCHEDULE SHIFT PROTOCOL:\n\nThis will move ALL future/active jobs ${direction}.\n(Fridays/Weekends will be skipped automatically).\n\nAre you sure?`)) return
 
     setProcessing(true)
+    
+    // 1. Snapshot current state for rollback
+    const oldEvents = [...events]
+
     try {
-      const todayStr = new Date().toISOString().split('T')[0]
+      const today = new Date()
+      today.setHours(0,0,0,0) // Reset time to midnight for comparison
+
+      // 2. OPTIMISTIC UPDATE: Move UI immediately
+      const updatedEvents = events.map(ev => {
+        // Only move events that start TODAY or in the FUTURE
+        if (ev.start >= today && ev.status !== 'Completed') {
+           const newStartISO = shiftDateByWorkDays(ev.start.toISOString(), days)
+           const newStart = new Date(newStartISO)
+           // Recalculate End Date based on duration
+           const newEnd = addWorkDays(newStart, ev.duration_days || 1)
+           
+           return { ...ev, start: newStart, end: newEnd }
+        }
+        return ev
+      })
       
+      setEvents(updatedEvents) // Update screen instantly
+
+      // 3. DATABASE UPDATE (Parallel Processing)
+      const todayStr = new Date().toISOString().split('T')[0]
       const { data: activeProjects } = await supabase
         .from('projects')
         .select('id, start_date')
@@ -178,23 +199,28 @@ export default function Calendar() {
         .gte('start_date', todayStr)
 
       if (!activeProjects?.length) {
-        alert("No active future projects found to shift.")
+        setProcessing(false)
         return
       }
 
-      for (const proj of activeProjects) {
+      // Fire all updates at once instead of waiting for each one
+      const updates = activeProjects.map(proj => {
         const newStart = shiftDateByWorkDays(proj.start_date, days)
-        await supabase
+        return supabase
           .from('projects')
           .update({ start_date: newStart })
           .eq('id', proj.id)
-      }
+      })
 
-      await fetchSchedule()
-      alert(`Success! Schedule updated.`)
+      await Promise.all(updates)
+
+      // 4. Silent Refresh (Sync with server to be safe)
+      fetchSchedule()
 
     } catch (error) {
-      alert("Error: " + error.message)
+      console.error(error)
+      alert("Error shifting schedule: " + error.message)
+      setEvents(oldEvents) // Revert UI if DB fails
     } finally {
       setProcessing(false)
     }
@@ -239,7 +265,15 @@ export default function Calendar() {
             <span className="text-xs font-bold text-slate-400 uppercase px-2">Global Shift:</span>
             <button onClick={() => handleScheduleShift(-1)} disabled={processing} className="px-3 py-1 hover:bg-slate-100 rounded text-slate-600 font-bold text-sm" title="Pull Schedule Back 1 Day">-1 Day</button>
             <div className="w-px h-4 bg-slate-200"></div>
-            <button onClick={() => handleScheduleShift(1)} disabled={processing} className={`flex items-center gap-2 px-3 py-1 rounded font-bold text-sm transition-colors ${processing ? 'bg-slate-100 text-slate-400' : 'bg-red-50 text-red-600 hover:bg-red-100'}`} title="Rain Delay: Push Schedule Forward 1 Day"><AlertTriangle size={14} /> Rain Delay (+1 Day)</button>
+            <button 
+              onClick={() => handleScheduleShift(1)} 
+              disabled={processing} 
+              className={`flex items-center gap-2 px-3 py-1 rounded font-bold text-sm transition-colors ${processing ? 'bg-amber-100 text-amber-600' : 'bg-red-50 text-red-600 hover:bg-red-100'}`} 
+              title="Rain Delay: Push Schedule Forward 1 Day"
+            >
+              {processing ? <Loader size={14} className="animate-spin"/> : <AlertTriangle size={14} />} 
+              {processing ? 'Shifting...' : 'Rain Delay (+1 Day)'}
+            </button>
           </div>
         )}
       </div>
