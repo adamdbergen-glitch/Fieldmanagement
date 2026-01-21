@@ -22,12 +22,12 @@ const MATERIALS = [
     desc: 'Drainage, window wells. Minimal compaction.'
   },
   { 
-    id: 'sand', 
-    name: 'Sand (Bedding)', 
+    id: 'quarter_down', 
+    name: '1/4" Down Limestone (Bedding)', 
     density: 1.35, 
-    compaction: 0.10, // Moderate
+    compaction: 0.15, // Better than sand for compaction
     unit: 'Yards',
-    desc: 'Paver bedding, leveling.'
+    desc: 'Superior paver bedding. Packs tight, deters ants.'
   },
   { 
     id: 'granite', 
@@ -81,7 +81,6 @@ export default function Calculator() {
   const targetVolumeCuYards = targetVolumeCuFt / 27
   
   // 2. Compaction Factor
-  // If material compacts 20%, you need 1.25x volume to fill the same space.
   // Formula: Target / (1 - CompactionRate)
   const compactedVolumeYards = targetVolumeCuYards / (1 - material.compaction)
 
