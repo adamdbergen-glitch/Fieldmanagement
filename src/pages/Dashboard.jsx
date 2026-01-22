@@ -5,6 +5,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { format, parseISO, addDays, differenceInCalendarDays, startOfMonth, endOfMonth, setDate, differenceInMinutes, setHours, setMinutes, isBefore } from 'date-fns'
 import { DollarSign, Clock, Calendar } from 'lucide-react'
 import TimeClock from '../components/TimeClock'
+import WeatherWidget from '../components/WeatherWidget' // <--- 1. NEW IMPORT
 
 export default function Dashboard() {
   const { user, userProfile } = useAuth()
@@ -147,12 +148,16 @@ export default function Dashboard() {
         )}
       </div>
 
-      {/* 2. TIME CLOCK & PAYROLL WIDGET */}
+      {/* 2. MAIN WIDGET GRID */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-1">
+        
+        {/* LEFT COLUMN: Weather & Time Clock */}
+        <div className="lg:col-span-1 space-y-6">
+          <WeatherWidget /> {/* <--- 2. ADDED WIDGET HERE */}
           <TimeClock />
         </div>
         
+        {/* RIGHT COLUMN: Payroll Stats */}
         <div className="lg:col-span-2 bg-gradient-to-br from-slate-900 to-slate-800 rounded-xl p-6 text-white shadow-sm border border-slate-700 flex flex-col justify-between relative overflow-hidden">
           <div className="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-full blur-3xl -mr-10 -mt-10"></div>
           

@@ -2,8 +2,14 @@ import React, { useState, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
-import { format, parseISO, differenceInMinutes, addDays, startOfMonth, endOfMonth, setDate, isFuture, isBefore, setHours, setMinutes } from 'date-fns'
-import { Clock, Save, Loader2, Calendar, User, Edit2, X, Settings, MapPin, Plus, Briefcase, AlertTriangle, FileText, Download, Coffee, ArrowRightCircle, Trash2 } from 'lucide-react'
+import { 
+  format, parseISO, differenceInMinutes, addDays, startOfMonth, endOfMonth, 
+  setDate, isFuture, isBefore, setHours, setMinutes, isValid 
+} from 'date-fns' // <--- ADDED isValid
+import { 
+  Clock, Save, Loader2, Calendar, User, Edit2, X, Settings, MapPin, Plus, 
+  Briefcase, AlertTriangle, FileText, Download, Coffee, ArrowRightCircle, Trash2 
+} from 'lucide-react'
 
 export default function Timesheets() {
   const queryClient = useQueryClient()
@@ -89,11 +95,22 @@ export default function Timesheets() {
     onSuccess: () => { queryClient.invalidateQueries(['payroll_config']); setShowSettings(false) }
   })
 
+  // --- HELPER: SAFE DATE FORMATTER ---
+  const safeFormat = (dateStr, formatStr) => {
+    if (!dateStr) return null
+    const date = parseISO(dateStr)
+    return isValid(date) ? format(date, formatStr) : 'Invalid Date'
+  }
+
   // --- HELPER: SMART HOURS CALCULATOR (Auto-Lunch) ---
   const calculatePaidMinutes = (clockIn, clockOut) => {
     if (!clockIn || !clockOut) return 0
     const start = parseISO(clockIn)
     const end = parseISO(clockOut)
+    
+    // Safety check
+    if (!isValid(start) || !isValid(end)) return 0
+
     let totalMins = differenceInMinutes(end, start)
 
     if (payrollConfig?.auto_lunch) {
@@ -112,6 +129,10 @@ export default function Timesheets() {
   const getAdjustedStartTime = (isoString) => {
     if (!payrollConfig?.auto_start_adjust || !payrollConfig?.official_start_time) return isoString
     const inputTime = parseISO(isoString)
+    
+    // Safety check
+    if (!isValid(inputTime)) return isoString
+
     const [targetHour, targetMin] = payrollConfig.official_start_time.split(':').map(Number)
     const officialStart = setMinutes(setHours(inputTime, targetHour), targetMin)
     if (isBefore(inputTime, officialStart)) {
@@ -120,10 +141,14 @@ export default function Timesheets() {
     return isoString
   }
 
-  // --- HELPER: Pay Period Logic ---
+  // --- HELPER: Pay Period Logic (CRASH PROOF) ---
   const getPeriodData = (dateString) => {
     if (!payrollConfig) return { label: 'Loading...', start: null, end: null }
+    if (!dateString) return { label: 'Unscheduled', start: new Date(), end: new Date() } // Handle nulls
+
     const date = parseISO(dateString)
+    if (!isValid(date)) return { label: 'Invalid Date', start: new Date(), end: new Date() } // Handle bad dates
+
     let start, end
 
     if (payrollConfig.frequency === 'monthly') {
@@ -134,6 +159,9 @@ export default function Timesheets() {
       else { start = setDate(date, 16); end = endOfMonth(date); }
     } else {
       const anchor = parseISO(payrollConfig.anchor_date)
+      // Safety check for anchor date
+      if (!isValid(anchor)) return { label: 'Config Error', start: new Date(), end: new Date() }
+
       const freqDays = payrollConfig.frequency === 'weekly' ? 7 : 14 
       const diffTime = date.getTime() - anchor.getTime()
       const diffDays = Math.floor(diffTime / (1000 * 3600 * 24))
@@ -184,7 +212,8 @@ export default function Timesheets() {
     e.preventDefault();
     const formData = new FormData(e.target);
     const rawStart = new Date(formData.get('clock_in')).toISOString()
-    const end = formData.get('clock_out') ? new Date(formData.get('clock_out')).toISOString() : null
+    const endVal = formData.get('clock_out')
+    const end = endVal ? new Date(endVal).toISOString() : null
     
     const start = getAdjustedStartTime(rawStart)
 
@@ -231,7 +260,7 @@ export default function Timesheets() {
                   <Calendar size={18} className="text-amber-500"/> {group.label}
                 </h3>
                 <p className="text-xs text-slate-400 font-bold uppercase tracking-widest mt-1 ml-6">
-                  Pay Day: {format(group.payDate, 'MMM d, yyyy')}
+                  Pay Day: {group.payDate && isValid(group.payDate) ? format(group.payDate, 'MMM d, yyyy') : 'Pending Config'}
                 </p>
               </div>
               
@@ -277,14 +306,14 @@ export default function Timesheets() {
                           </div>
                         </div>
                       </td>
-                      <td className="p-4 text-slate-600 text-sm font-mono hidden md:table-cell">{format(parseISO(log.clock_in_time), 'EEE, MMM d')}</td>
+                      <td className="p-4 text-slate-600 text-sm font-mono hidden md:table-cell">{safeFormat(log.clock_in_time, 'EEE, MMM d')}</td>
                       
-                      {/* RESTORED: GPS Links in this column */}
+                      {/* GPS Links in this column */}
                       <td className="p-4 text-sm">
                         <div className="md:hidden text-xs text-slate-400 mb-1">
-                            {format(parseISO(log.clock_in_time), 'MMM d')}
+                            {safeFormat(log.clock_in_time, 'MMM d')}
                         </div>
-                        <span className="text-green-700 font-bold">{format(parseISO(log.clock_in_time), 'h:mm a')}</span>
+                        <span className="text-green-700 font-bold">{safeFormat(log.clock_in_time, 'h:mm a')}</span>
                         {log.gps_in_lat && (
                           <a href={`https://www.google.com/maps?q=${log.gps_in_lat},${log.gps_in_long}`} target="_blank" rel="noreferrer" className="inline-block ml-1 text-slate-300 hover:text-blue-500">
                             <MapPin size={12} />
@@ -293,7 +322,7 @@ export default function Timesheets() {
                         <span className="text-slate-300 mx-2">-</span>
                         {log.clock_out_time ? (
                           <>
-                            <span className="text-slate-700">{format(parseISO(log.clock_out_time), 'h:mm a')}</span>
+                            <span className="text-slate-700">{safeFormat(log.clock_out_time, 'h:mm a')}</span>
                             {log.gps_out_lat && (
                               <a href={`https://www.google.com/maps?q=${log.gps_out_lat},${log.gps_out_long}`} target="_blank" rel="noreferrer" className="inline-block ml-1 text-slate-300 hover:text-blue-500">
                                 <MapPin size={12} />
@@ -316,7 +345,7 @@ export default function Timesheets() {
                         ) : '-'}
                       </td>
                       
-                      {/* RESTORED: Delete Button */}
+                      {/* Delete Button */}
                       {userProfile?.role === 'admin' && (
                         <td className="p-4 text-right">
                           <div className="flex items-center justify-end gap-2">
@@ -498,11 +527,11 @@ export default function Timesheets() {
                 <div className="grid grid-cols-2 gap-2">
                   <div>
                     <label className="block text-sm font-bold">In</label>
-                    <input type="datetime-local" name="clock_in" defaultValue={editingLog ? format(parseISO(editingLog.clock_in_time), "yyyy-MM-dd'T'HH:mm") : ''} className="w-full p-2 border rounded" required />
+                    <input type="datetime-local" name="clock_in" defaultValue={editingLog && isValid(parseISO(editingLog.clock_in_time)) ? format(parseISO(editingLog.clock_in_time), "yyyy-MM-dd'T'HH:mm") : ''} className="w-full p-2 border rounded" required />
                   </div>
                   <div>
                     <label className="block text-sm font-bold">Out</label>
-                    <input type="datetime-local" name="clock_out" defaultValue={editingLog?.clock_out_time ? format(parseISO(editingLog.clock_out_time), "yyyy-MM-dd'T'HH:mm") : ''} className="w-full p-2 border rounded" />
+                    <input type="datetime-local" name="clock_out" defaultValue={editingLog?.clock_out_time && isValid(parseISO(editingLog.clock_out_time)) ? format(parseISO(editingLog.clock_out_time), "yyyy-MM-dd'T'HH:mm") : ''} className="w-full p-2 border rounded" />
                   </div>
                 </div>
                 
