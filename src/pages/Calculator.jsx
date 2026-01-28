@@ -1,5 +1,10 @@
 import React, { useState, useEffect } from 'react'
-import { Calculator as CalcIcon, Truck, Info, AlertTriangle, ArrowDownToLine, Maximize } from 'lucide-react'
+import { useQuery } from '@tanstack/react-query' // <--- NEW IMPORT
+import { supabase } from '../lib/supabase'       // <--- NEW IMPORT
+import { 
+  Calculator as CalcIcon, Truck, Info, AlertTriangle, 
+  ArrowDownToLine, Maximize, Save, X, Loader2, CheckCircle // <--- NEW ICONS
+} from 'lucide-react'
 
 // WINNIPEG LANDSCAPE MATERIALS DATA
 const MATERIALS = [
@@ -65,14 +70,17 @@ export default function Calculator() {
   // Inputs
   const [length, setLength] = useState('')
   const [width, setWidth] = useState('')
-  const [manualArea, setManualArea] = useState('') // The master "Area" input
+  const [manualArea, setManualArea] = useState('') 
   
   const [depth, setDepth] = useState(4)
   const [waste, setWaste] = useState(10)
   const [material, setMaterial] = useState(MATERIALS[0])
 
+  // --- NEW STATE for "Save to Project" ---
+  const [isModalOpen, setIsModalOpen] = useState(false)
+  const [isSaving, setIsSaving] = useState(false)
+
   // --- LOGIC: AUTO-CALCULATE AREA ---
-  // If user types Length/Width, update Area automatically.
   useEffect(() => {
     const l = parseFloat(length)
     const w = parseFloat(width)
@@ -89,7 +97,7 @@ export default function Calculator() {
   const targetVolumeCuFt = finalAreaSqFt * (d / 12)
   const targetVolumeCuYards = targetVolumeCuFt / 27
   
-  // 2. Compaction Factor (Target / (1 - Rate))
+  // 2. Compaction Factor
   const compactedVolumeYards = targetVolumeCuYards / (1 - material.compaction)
 
   // 3. Apply Waste
@@ -101,8 +109,48 @@ export default function Calculator() {
 
   const compactionAdded = requiredYards - (targetVolumeCuYards * wasteMultiplier)
 
+  // --- FETCH PROJECTS (For the Save Modal) ---
+  const { data: projects } = useQuery({
+    queryKey: ['active_projects_list'],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from('projects')
+        .select('id, name, customer:customers(name)')
+        .neq('status', 'Completed') // Only active jobs
+        .order('name')
+      return data || []
+    },
+    enabled: isModalOpen // Only fetch when they open the modal
+  })
+
+  // --- ACTION: SAVE TO DB ---
+  const handleSaveToProject = async (projectId) => {
+    if (!projectId) return
+    setIsSaving(true)
+
+    try {
+      const { error } = await supabase.from('project_materials').insert({
+        project_id: projectId,
+        material_name: material.name,
+        quantity_required: parseFloat(requiredYards.toFixed(2)),
+        quantity_collected: 0 // Start at 0 collected
+      })
+
+      if (error) throw error
+
+      // Success Feedback
+      setIsModalOpen(false)
+      alert(`Saved ${requiredYards.toFixed(2)} yards of ${material.name} to project!`)
+      
+    } catch (err) {
+      alert('Error saving material: ' + err.message)
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
   return (
-    <div className="max-w-xl mx-auto p-6 pb-24">
+    <div className="max-w-xl mx-auto p-6 pb-24 relative">
       
       {/* HEADER */}
       <div className="flex items-center gap-3 mb-8">
@@ -138,7 +186,6 @@ export default function Calculator() {
         <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
           <label className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-3 block">2. Calculate Area</label>
           
-          {/* Option A: Dimensions */}
           <div className="grid grid-cols-2 gap-4 mb-4">
             <div>
               <span className="block text-xs font-bold text-slate-500 mb-1">Length (ft)</span>
@@ -168,7 +215,6 @@ export default function Calculator() {
             <div className="flex-grow border-t border-slate-200"></div>
           </div>
 
-          {/* Option B: Direct Area Override */}
           <div className="mt-2">
              <span className="block text-xs font-bold text-amber-600 mb-1 flex items-center gap-1"><Maximize size={12}/> Total Area (sq ft) - <span className="text-slate-400 font-normal">Use for odd shapes</span></span>
              <input 
@@ -178,7 +224,6 @@ export default function Calculator() {
                 value={manualArea}
                 onChange={e => {
                   setManualArea(e.target.value)
-                  // If user types here, we clear L/W to indicate manual mode
                   if(length || width) { setLength(''); setWidth(''); }
                 }}
               />
@@ -224,34 +269,44 @@ export default function Calculator() {
              </div>
            </div>
 
-           {/* COMPACTION DETAILS */}
-           {material.compaction > 0 && (
-             <div className="bg-slate-800 rounded-lg p-3 mb-3 flex items-center justify-between border border-slate-700">
-               <div className="flex items-center gap-2">
-                 <ArrowDownToLine size={16} className="text-amber-500" />
-                 <span className="text-sm font-bold text-slate-300">Compaction Factor</span>
-               </div>
-               <div className="text-right">
-                 <span className="block text-xs text-slate-500">Adds approx.</span>
-                 <span className="font-bold text-amber-500">+{compactionAdded.toFixed(2)} yds³</span>
-               </div>
-             </div>
-           )}
+           {/* COMPACTION & WEIGHT (Grouped) */}
+           <div className="space-y-3">
+              {material.compaction > 0 && (
+                <div className="bg-slate-800 rounded-lg p-3 flex items-center justify-between border border-slate-700">
+                  <div className="flex items-center gap-2">
+                    <ArrowDownToLine size={16} className="text-amber-500" />
+                    <span className="text-sm font-bold text-slate-300">Compaction Factor</span>
+                  </div>
+                  <div className="text-right">
+                    <span className="block text-xs text-slate-500">Adds approx.</span>
+                    <span className="font-bold text-amber-500">+{compactionAdded.toFixed(2)} yds³</span>
+                  </div>
+                </div>
+              )}
 
-           {/* WEIGHT WARNING */}
-           <div className="bg-slate-800/50 rounded-lg p-3 flex items-start gap-3 border border-slate-700">
-             <Truck className="text-slate-400 shrink-0 mt-0.5" size={20} />
-             <div>
-               <p className="text-slate-300 text-sm font-bold">Est. Weight: <span className="text-white">{estimatedTons.toFixed(1)} Tons</span></p>
-               <p className="text-slate-500 text-xs mt-1 leading-relaxed">
-                 Density: {material.density} tons/yd³.
-               </p>
-               {estimatedTons > 4 && (
-                 <div className="mt-2 flex items-center gap-2 text-amber-500 text-xs font-bold">
-                   <AlertTriangle size={14} /> Heavy Load - Tandem Axle Required
-                 </div>
-               )}
-             </div>
+              <div className="bg-slate-800/50 rounded-lg p-3 flex items-start gap-3 border border-slate-700">
+                <Truck className="text-slate-400 shrink-0 mt-0.5" size={20} />
+                <div>
+                  <p className="text-slate-300 text-sm font-bold">Est. Weight: <span className="text-white">{estimatedTons.toFixed(1)} Tons</span></p>
+                  <p className="text-slate-500 text-xs mt-1 leading-relaxed">
+                    Density: {material.density} tons/yd³.
+                  </p>
+                  {estimatedTons > 4 && (
+                    <div className="mt-2 flex items-center gap-2 text-amber-500 text-xs font-bold">
+                      <AlertTriangle size={14} /> Heavy Load - Tandem Axle Required
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* SAVE BUTTON */}
+              <button 
+                onClick={() => setIsModalOpen(true)}
+                disabled={requiredYards <= 0}
+                className="w-full mt-4 bg-amber-500 text-slate-900 font-bold py-3 rounded-lg flex items-center justify-center gap-2 hover:bg-amber-400 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+              >
+                <Save size={20} /> Save to Project
+              </button>
            </div>
         </div>
 
@@ -265,6 +320,53 @@ export default function Calculator() {
         </div>
 
       </div>
+
+      {/* --- SAVE TO PROJECT MODAL --- */}
+      {isModalOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-900/95 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="w-full max-w-md bg-white rounded-xl shadow-2xl overflow-hidden">
+            <div className="bg-slate-50 p-4 border-b border-slate-200 flex justify-between items-center">
+              <h3 className="font-bold text-slate-800 flex items-center gap-2">
+                <Save size={18} className="text-amber-500" /> Save to Project
+              </h3>
+              <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-slate-600">
+                <X size={24} />
+              </button>
+            </div>
+            
+            <div className="p-4 max-h-[60vh] overflow-y-auto space-y-2">
+              <div className="mb-4 bg-blue-50 border border-blue-100 p-3 rounded-lg">
+                <p className="text-xs text-blue-700 font-bold uppercase mb-1">Adding</p>
+                <p className="text-lg font-black text-blue-900">
+                  {requiredYards.toFixed(2)} yds³ <span className="font-normal text-sm text-blue-600">of {material.name}</span>
+                </p>
+              </div>
+
+              <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Select Active Project</p>
+              
+              {!projects && <div className="p-4 text-center"><Loader2 className="animate-spin mx-auto text-amber-500" /></div>}
+              
+              {projects?.length === 0 && (
+                <p className="text-center text-slate-500 py-4 italic">No active projects found.</p>
+              )}
+
+              {projects?.map(proj => (
+                <button
+                  key={proj.id}
+                  onClick={() => handleSaveToProject(proj.id)}
+                  disabled={isSaving}
+                  className="w-full text-left p-4 rounded-lg border border-slate-200 hover:border-amber-500 hover:bg-amber-50 transition-all group relative"
+                >
+                  <p className="font-bold text-slate-800 group-hover:text-slate-900">{proj.customer?.name || 'Unnamed Client'}</p>
+                  <p className="text-xs text-slate-500">{proj.name}</p>
+                  {isSaving && <div className="absolute right-4 top-4"><Loader2 className="animate-spin text-amber-500" size={16} /></div>}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   )
 }
