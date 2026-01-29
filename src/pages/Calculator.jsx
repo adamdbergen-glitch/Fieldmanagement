@@ -4,10 +4,10 @@ import { supabase } from '../lib/supabase'
 import { 
   Calculator as CalcIcon, Truck, Info, AlertTriangle, 
   ArrowDownToLine, Maximize, Save, X, Loader2, 
-  Grid, Layers, Box, Square, ArrowRight, Activity
+  Grid, Layers, Activity, Square
 } from 'lucide-react'
 
-// --- DATA: BULK MATERIALS ---
+// --- 1. BULK MATERIALS (Gravel, Soil, Mulch) ---
 const BULK_MATERIALS = [
   { id: 'base', name: '3/4" Down Limestone (Base)', density: 1.35, compaction: 0.20, unit: 'Yards', desc: 'Driveway/Patio Base. Compacts significantly.' },
   { id: 'clear', name: '3/4" Clean Limestone', density: 1.25, compaction: 0.03, unit: 'Yards', desc: 'Drainage, window wells. Minimal compaction.' },
@@ -18,27 +18,86 @@ const BULK_MATERIALS = [
   { id: 'mulch', name: 'Bark Mulch', density: 0.4, compaction: 0.0, unit: 'Yards', desc: 'Lightweight. Sold by volume.' }
 ]
 
-// --- DATA: PAVERS (WINNIPEG SPECS) ---
+// --- 2. PAVER CATALOG (Barkman & Belgard 2025) ---
 const PAVER_BRANDS = {
   barkman: {
-    name: 'Barkman',
+    name: 'Barkman Concrete',
     products: [
-      { id: 'roman', name: 'Roman Paver (Combo)', sqft_pallet: 96, sqft_layer: 10.6, desc: 'Classic 3-size tumbled system.' },
-      { id: 'broadway_65', name: 'Broadway 65mm', sqft_pallet: 115, sqft_layer: 11.5, desc: 'Large format modern slab.' },
-      { id: 'navarro', name: 'Navarro', sqft_pallet: 90, sqft_layer: 10, desc: 'Textured 3-size system.' }
+      // --- CLASSIC SERIES ---
+      { id: 'holland_60', name: 'Holland (60mm)', sqft_pallet: 96, sqft_layer: 9.6, desc: 'Classic 4x8 brick. 96 sqft/plt (10 layers).' },
+      { id: 'holland_80', name: 'Holland (80mm)', sqft_pallet: 76.8, sqft_layer: 9.6, desc: 'Driveway/Commercial. 76.8 sqft/plt.' },
+      
+      // --- ROMAN (TUMBLED) ---
+      { id: 'roman_4x8', name: 'Roman 4x8 (Stack)', sqft_pallet: 96, sqft_layer: 9.6, desc: 'Tumbled brick size.' },
+      { id: 'roman_6x8', name: 'Roman 6x8 (Stack)', sqft_pallet: 90, sqft_layer: 9.0, desc: 'Tumbled medium rectangle.' },
+      { id: 'roman_8x8', name: 'Roman 8x8 (Stack)', sqft_pallet: 89.6, sqft_layer: 8.96, desc: 'Tumbled square.' },
+      { id: 'roman_10x8', name: 'Roman 10x8 (Stack)', sqft_pallet: 94.4, sqft_layer: 9.44, desc: 'Tumbled large rectangle.' },
+      { id: 'roman_12x8', name: 'Roman 12x8 (Stack)', sqft_pallet: 113.6, sqft_layer: 11.36, desc: 'Tumbled XL rectangle.' },
+      { id: 'roman_circle', name: 'Roman Circle Kit', sqft_pallet: 89.1, sqft_layer: 9.9, desc: 'Approx 10ft diameter circle.' },
+
+      // --- BROADWAY (MODERN SLAB) 65mm ---
+      { id: 'bw_65_300x150', name: 'Broadway 65mm (300x150)', sqft_pallet: 115.2, sqft_layer: 11.52, desc: 'Small rectangle. 115.2 sqft/plt.' },
+      { id: 'bw_65_300x300', name: 'Broadway 65mm (300x300)', sqft_pallet: 87.3, sqft_layer: 8.73, desc: 'Small square. 87.3 sqft/plt.' },
+      { id: 'bw_65_600x300', name: 'Broadway 65mm (600x300)', sqft_pallet: 116.4, sqft_layer: 11.64, desc: 'Medium rectangle. 116.4 sqft/plt.' },
+      { id: 'bw_65_600x600', name: 'Broadway 65mm (600x600)', sqft_pallet: 77.4, sqft_layer: 7.74, desc: 'Large square. 77.4 sqft/plt.' },
+      { id: 'bw_65_900x600', name: 'Broadway 65mm (900x600)', sqft_pallet: 116.1, sqft_layer: 11.61, desc: 'XL Slab. 116.1 sqft/plt.' },
+
+      // --- BROADWAY (DRIVEWAY) 80mm ---
+      { id: 'bw_80_300x300', name: 'Broadway 80mm (300x300)', sqft_pallet: 79.12, sqft_layer: 9.89, desc: 'Driveway square. 79.1 sqft/plt.' },
+      { id: 'bw_80_600x300', name: 'Broadway 80mm (600x300)', sqft_pallet: 105.44, sqft_layer: 13.18, desc: 'Driveway rectangle. 105.4 sqft/plt.' },
+      { id: 'bw_80_600x600', name: 'Broadway 80mm (600x600)', sqft_pallet: 70.08, sqft_layer: 8.76, desc: 'Driveway large square. 70 sqft/plt.' },
+
+      // --- OTHER ---
+      { id: 'verano', name: 'Verano (3-Size)', sqft_pallet: 96, sqft_layer: 9.6, desc: '3-size combo system. 96 sqft/plt.' },
+      { id: 'cobble', name: 'Cobble (80mm)', sqft_pallet: 86.8, sqft_layer: 12.4, desc: 'Old world look. 7 layers/plt.' },
+      { id: 'flagstone', name: 'Flagstone Paver', sqft_pallet: 96.8, sqft_layer: 9.68, desc: 'Jigsaw shape. 96.8 sqft/plt.' },
+      { id: 'hexagon', name: 'Hexagon 65mm', sqft_pallet: 64, sqft_layer: 6.4, desc: 'Honeycomb. 64 sqft/plt.' },
+      { id: 'boardwalk', name: 'Boardwalk', sqft_pallet: 76, sqft_layer: 10.85, desc: 'Wood plank concrete. 76 sqft/plt.' },
+      { id: 'grand_flagstone', name: 'Grand Flagstone', sqft_pallet: 90, sqft_layer: 11.25, desc: 'Wet cast irregular. 90 sqft/plt.' },
+      { id: 'turfstone', name: 'Turfstone Eco', sqft_pallet: 81.92, sqft_layer: 10.24, desc: 'Grid/Grass paver. 81.9 sqft/plt.' }
     ]
   },
   belgard: {
     name: 'Belgard',
     products: [
-      { id: 'holland', name: 'Holland Stone (4x8)', sqft_pallet: 120, sqft_layer: 12, desc: 'Standard 4x8 brick. Best for patterns.' },
-      { id: 'dim_12', name: 'Dimensions 12', sqft_pallet: 96, sqft_layer: 12, desc: 'Smooth modern slab.' }
+      // --- DIMENSIONS (MODERN) ---
+      { id: 'dim_6', name: 'Dimensions 6 (60mm)', sqft_pallet: 120, sqft_layer: 12, desc: '3-Piece System (Small). 120 sqft/plt.' },
+      { id: 'dim_12', name: 'Dimensions 12 (60mm)', sqft_pallet: 120, sqft_layer: 12, desc: '3-Piece System (Medium). 120 sqft/plt.' },
+      { id: 'dim_18', name: 'Dimensions 18 (60mm)', sqft_pallet: 112.5, sqft_layer: 11.25, desc: '3-Piece System (Large). 112.5 sqft/plt.' },
+      { id: 'dim_12_80', name: 'Dimensions 12 (80mm)', sqft_pallet: 96, sqft_layer: 12, desc: 'Driveway HD. 96 sqft/plt.' },
+      { id: 'dim_slab', name: 'Dimensions Slab (24x24)', sqft_pallet: 80, sqft_layer: 8, desc: 'Large smooth slab. 80 sqft/plt.' },
+
+      // --- ORIGINS (TEXTURED) ---
+      { id: 'origins_6', name: 'Origins 6 (60mm)', sqft_pallet: 120, sqft_layer: 12, desc: 'Textured 3-Piece (Small). 120 sqft/plt.' },
+      { id: 'origins_12', name: 'Origins 12 (60mm)', sqft_pallet: 120, sqft_layer: 12, desc: 'Textured 3-Piece (Medium). 120 sqft/plt.' },
+      { id: 'origins_18', name: 'Origins 18 (60mm)', sqft_pallet: 112.5, sqft_layer: 11.25, desc: 'Textured 3-Piece (Large). 112.5 sqft/plt.' },
+
+      // --- HERITAGE ---
+      { id: 'holland_belg', name: 'Holland Stone (60mm)', sqft_pallet: 120, sqft_layer: 12, desc: 'Standard 4x8. 120 sqft/plt.' },
+      { id: 'holland_belg_80', name: 'Holland Stone (80mm)', sqft_pallet: 96, sqft_layer: 12, desc: 'Driveway 4x8. 96 sqft/plt.' },
+      { id: 'belgian_cobble', name: 'Belgian Cobble', sqft_pallet: 74, sqft_layer: 7.4, desc: 'Multi-piece cobble. 74 sqft/plt.' },
+      { id: 'charlestone', name: 'Charlestone', sqft_pallet: 103.9, sqft_layer: 10.39, desc: '3-piece textured. 103.9 sqft/plt.' },
+      { id: 'brooklyn', name: 'Brooklyn', sqft_pallet: 103.1, sqft_layer: 10.3, desc: 'Warm weathered 3x9. 103.1 sqft/plt.' },
+      
+      // --- SLABS & SPECIALTY ---
+      { id: 'mega_libre', name: 'Mega-Libre (Flagstone)', sqft_pallet: 83, sqft_layer: 8.3, desc: 'Irregular flagstone. 83 sqft/plt.' },
+      { id: 'texada', name: 'Texada (24x24)', sqft_pallet: 100, sqft_layer: 10, desc: 'Shot-blast slab. 100 sqft/plt.' },
+      { id: 'aqualine', name: 'Aqualine (Permeable)', sqft_pallet: 73.7, sqft_layer: 10.5, desc: 'Permeable 4.5x9. 73.7 sqft/plt.' },
+      { id: 'turfstone_belg', name: 'Turfstone', sqft_pallet: 103.2, sqft_layer: 12.9, desc: 'Grid paver. 103.2 sqft/plt.' }
+    ]
+  },
+  techo: {
+    name: 'Techo-Bloc',
+    products: [
+      { id: 'blu_60', name: 'Blu 60mm Smooth', sqft_pallet: 116.82, sqft_layer: 10.62, desc: '3-size slab. 116.8 sqft/plt.' },
+      { id: 'eva', name: 'Eva', sqft_pallet: 132.48, sqft_layer: 11.04, desc: 'Petite slate look. 132.5 sqft/plt.' },
+      { id: 'para', name: 'Para HD2 500x750', sqft_pallet: 88.8, sqft_layer: 8.07, desc: 'Ultra-modern large scale.' }
     ]
   },
   borders: {
     name: 'Borders / Accents',
     products: [
-      { id: 'holland_border', name: 'Holland (4x8)', sqft_pallet: 120, sqft_layer: 12, width_soldier: 8, width_sailor: 4, desc: 'The universal border stone.' },
+      { id: 'holland_border', name: 'Holland (4x8)', sqft_pallet: 96, sqft_layer: 9.6, width_soldier: 8, width_sailor: 4, desc: 'Universal border. (Calculated @ 96sqft/plt)' },
       { id: '6x9_border', name: '6x9 Accent', sqft_pallet: 95, sqft_layer: 11, width_soldier: 9, width_sailor: 6, desc: 'Thicker, bolder border.' }
     ]
   }
@@ -51,7 +110,7 @@ export default function Calculator() {
   const [length, setLength] = useState('')
   const [width, setWidth] = useState('')
   const [manualArea, setManualArea] = useState('') 
-  const [perimeter, setPerimeter] = useState('') // Linear Feet (Manual or Auto)
+  const [perimeter, setPerimeter] = useState('') 
   
   const [depth, setDepth] = useState(4)
   const [waste, setWaste] = useState(10)
@@ -64,7 +123,7 @@ export default function Calculator() {
   // --- BORDER STATE ---
   const [addBorder, setAddBorder] = useState(false)
   const [borderProduct, setBorderProduct] = useState(PAVER_BRANDS.borders.products[0])
-  const [borderOrientation, setBorderOrientation] = useState('soldier') // 'soldier' or 'sailor'
+  const [borderOrientation, setBorderOrientation] = useState('soldier') 
 
   // Save Modal
   const [isModalOpen, setIsModalOpen] = useState(false)
@@ -74,7 +133,6 @@ export default function Calculator() {
   useEffect(() => {
     const l = parseFloat(length)
     const w = parseFloat(width)
-    // Only auto-calc if BOTH L and W are valid numbers
     if (!isNaN(l) && !isNaN(w) && l > 0 && w > 0) {
       setManualArea((l * w).toFixed(0))
       setPerimeter(((l + w) * 2).toFixed(0))
@@ -91,11 +149,8 @@ export default function Calculator() {
   
   if (mode === 'paver' && addBorder) {
     const linearFeet = parseFloat(perimeter) || 0
-    // Get width in feet (e.g., 8 inches = 0.66 ft)
     const widthInches = borderOrientation === 'soldier' ? borderProduct.width_soldier : borderProduct.width_sailor
     borderAreaSqFt = linearFeet * (widthInches / 12)
-    
-    // Add waste to border
     borderPallets = (borderAreaSqFt * 1.05) / borderProduct.sqft_pallet 
   }
 
@@ -143,7 +198,6 @@ export default function Calculator() {
     try {
       const itemsToSave = []
 
-      // 1. Main Material
       if (mode === 'bulk') {
         itemsToSave.push({
           project_id: projectId,
@@ -261,7 +315,7 @@ export default function Calculator() {
                 {PAVER_BRANDS[paverBrand].products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
               </select>
               <p className="text-xs text-slate-500 mt-1 flex items-center gap-1">
-                <Layers size={12} /> {paverProduct.sqft_pallet} sqft/pallet • {paverProduct.sqft_layer} sqft/layer
+                <Layers size={12} /> {paverProduct.sqft_pallet} sqft/pallet • {paverProduct.sqft_layer.toFixed(2)} sqft/layer
               </p>
             </div>
           )}
@@ -284,11 +338,10 @@ export default function Calculator() {
 
           <div className="relative flex py-2 items-center">
             <div className="flex-grow border-t border-slate-200"></div>
-            <span className="flex-shrink mx-4 text-xs font-bold text-slate-300 uppercase">OR Manual Entry (Irregular)</span>
+            <span className="flex-shrink mx-4 text-xs font-bold text-slate-300 uppercase">OR Manual Entry</span>
             <div className="flex-grow border-t border-slate-200"></div>
           </div>
 
-          {/* MANUAL ENTRY GRID (UPDATED) */}
           <div className="grid grid-cols-2 gap-4 mt-2 mb-4">
              <div>
                 <span className="block text-xs font-bold text-amber-600 mb-1 flex items-center gap-1">
@@ -305,7 +358,6 @@ export default function Calculator() {
                 />
              </div>
              
-             {/* MANUAL PERIMETER INPUT (Visible for Pavers) */}
              {mode === 'paver' && (
                 <div>
                   <span className="block text-xs font-bold text-blue-600 mb-1 flex items-center gap-1">
@@ -325,7 +377,6 @@ export default function Calculator() {
           </div>
 
           <div className="grid grid-cols-2 gap-4 border-t border-slate-100 pt-4">
-             {/* Only show Depth for Bulk */}
              {mode === 'bulk' ? (
                <div>
                 <span className="block text-xs font-bold text-slate-500 mb-1">Depth (in)</span>
@@ -340,7 +391,6 @@ export default function Calculator() {
                 </div>
              )}
              
-             {/* Waste Selection */}
              <div className={mode === 'paver' && !addBorder ? 'col-span-2' : ''}>
               <span className="block text-xs font-bold text-slate-500 mb-1">Waste %</span>
               <div className="flex items-center gap-2">
@@ -351,12 +401,10 @@ export default function Calculator() {
             </div>
           </div>
 
-          {/* BORDER SETTINGS (Conditional) */}
           {addBorder && mode === 'paver' && (
               <div className="mt-4 pt-4 border-t border-slate-100 animate-in slide-in-from-top-2">
                   <div className="bg-blue-50 border border-blue-100 rounded-lg p-3">
                       <p className="text-xs font-bold text-blue-700 uppercase mb-2">Border Settings</p>
-                      
                       <div className="grid grid-cols-1 gap-3 mb-3">
                          <div>
                             <span className="text-[10px] font-bold text-blue-400 uppercase">Select Stone</span>
@@ -365,7 +413,6 @@ export default function Calculator() {
                             </select>
                         </div>
                       </div>
-
                       <div className="flex gap-2">
                           <button onClick={() => setBorderOrientation('soldier')} className={`flex-1 py-2 text-xs font-bold rounded border ${borderOrientation === 'soldier' ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-blue-400 border-blue-200'}`}>Soldier ({borderProduct.width_soldier}")</button>
                           <button onClick={() => setBorderOrientation('sailor')} className={`flex-1 py-2 text-xs font-bold rounded border ${borderOrientation === 'sailor' ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-blue-400 border-blue-200'}`}>Sailor ({borderProduct.width_sailor}")</button>
@@ -378,7 +425,6 @@ export default function Calculator() {
         {/* 3. RESULTS CARD */}
         <div className="bg-slate-900 rounded-xl p-6 text-white shadow-xl relative overflow-hidden">
            
-           {/* BULK RESULTS */}
            {mode === 'bulk' && (
              <>
                <div className="flex justify-between items-start mb-6">
@@ -392,7 +438,6 @@ export default function Calculator() {
                  </div>
                </div>
                
-               {/* Bulk Metadata */}
                <div className="space-y-3">
                   {bulkMaterial.compaction > 0 && (
                     <div className="bg-slate-800 rounded-lg p-3 flex items-center justify-between border border-slate-700">
@@ -411,7 +456,6 @@ export default function Calculator() {
              </>
            )}
 
-           {/* PAVER RESULTS */}
            {mode === 'paver' && (
              <>
                <div className="flex justify-between items-start mb-6">
@@ -426,9 +470,7 @@ export default function Calculator() {
                  </div>
                </div>
 
-               {/* Paver Metadata */}
                <div className="space-y-3">
-                   {/* Main Pallet Breakdown */}
                    <div className="bg-slate-800 rounded-lg p-3 border border-slate-700 flex justify-between items-center">
                         <span className="text-slate-300 text-xs font-bold uppercase">Full Pallets</span>
                         <div className="text-right">
@@ -439,7 +481,6 @@ export default function Calculator() {
                         </div>
                    </div>
 
-                   {/* Border Result */}
                    {addBorder && borderPallets > 0 && (
                        <div className="bg-blue-900/30 border border-blue-500/30 rounded-lg p-3 flex justify-between items-center">
                            <div>
@@ -456,7 +497,6 @@ export default function Calculator() {
              </>
            )}
 
-           {/* SAVE BUTTON */}
            <button 
              onClick={() => setIsModalOpen(true)}
              disabled={grossAreaSqFt <= 0}
@@ -473,7 +513,6 @@ export default function Calculator() {
         </div>
       </div>
 
-      {/* --- SAVE MODAL --- */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 bg-slate-900/95 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
           <div className="w-full max-w-md bg-white rounded-xl shadow-2xl overflow-hidden">
