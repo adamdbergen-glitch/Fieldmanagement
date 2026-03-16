@@ -85,7 +85,7 @@ export default function Login() {
             <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Full Name</label>
             <input 
               required
-              className="w-full p-3 border border-slate-200 rounded-lg focus:ring-2 focus:ring-amber-500 outline-none" 
+              className="w-full p-4 bg-slate-500/5 border border-slate-200/50 rounded-2xl focus:bg-white focus:ring-4 focus:ring-amber-500/20 focus:border-amber-500 outline-none transition-all duration-300 text-slate-800 placeholder-slate-400" 
               placeholder="e.g. Adam Foreman" 
               value={fullName}
               onChange={(e) => setFullName(e.target.value)} 
@@ -98,7 +98,7 @@ export default function Login() {
           <input 
             required
             type="email"
-            className="w-full p-3 border border-slate-200 rounded-lg focus:ring-2 focus:ring-amber-500 outline-none" 
+            className="w-full p-4 bg-slate-500/5 border border-slate-200/50 rounded-2xl focus:bg-white focus:ring-4 focus:ring-amber-500/20 focus:border-amber-500 outline-none transition-all duration-300 text-slate-800 placeholder-slate-400" 
             placeholder="name@company.com" 
             value={email}
             onChange={(e) => setEmail(e.target.value)} 
@@ -109,7 +109,7 @@ export default function Login() {
           <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Password</label>
           <input 
             required
-            className="w-full p-3 border border-slate-200 rounded-lg focus:ring-2 focus:ring-amber-500 outline-none" 
+            className="w-full p-4 bg-slate-500/5 border border-slate-200/50 rounded-2xl focus:bg-white focus:ring-4 focus:ring-amber-500/20 focus:border-amber-500 outline-none transition-all duration-300 text-slate-800 placeholder-slate-400" 
             type="password" 
             placeholder="••••••••" 
             value={password}
@@ -119,7 +119,7 @@ export default function Login() {
         
         <button 
           disabled={loading} 
-          className="w-full bg-slate-900 text-white font-bold py-3.5 rounded-lg mb-4 hover:bg-slate-800 transition-colors flex justify-center items-center gap-2"
+          className="w-full py-4 bg-gradient-to-b from-slate-800 to-slate-950 hover:from-slate-700 hover:to-slate-900 text-white font-bold rounded-2xl flex items-center justify-center gap-2 shadow-[0_10px_20px_rgba(0,0,0,0.2)] hover:shadow-[0_15px_30px_rgba(0,0,0,0.3)] hover:-translate-y-0.5 active:scale-[0.97] transition-all duration-300 mb-4"
         >
           {loading ? <Loader2 className="animate-spin" size={20} /> : (isSignUp ? 'Sign Up' : 'Log In')}
         </button>
