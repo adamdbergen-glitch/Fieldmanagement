@@ -158,7 +158,7 @@ export default function Dashboard() {
         </div>
         
         {/* RIGHT COLUMN: Payroll Stats */}
-        <div className="lg:col-span-2 bg-gradient-to-br from-slate-900 to-slate-800 rounded-xl p-6 text-white shadow-sm border border-slate-700 flex flex-col justify-between relative overflow-hidden">
+        <div className="lg:col-span-2 bg-gradient-to-br from-slate-900 via-slate-800 to-slate-950 rounded-3xl p-8 text-white shadow-[0_20px_40px_rgba(0,0,0,0.2)] border border-slate-700/50 flex flex-col justify-between relative overflow-hidden group">
           <div className="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-full blur-3xl -mr-10 -mt-10"></div>
           
           <div className="flex justify-between items-start z-10">
@@ -194,8 +194,8 @@ export default function Dashboard() {
       </div>
 
       {/* 3. ACTIVE PROJECTS LIST */}
-      <div className="bg-white shadow-sm rounded-xl overflow-hidden border border-slate-200">
-        <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+      <div className="bg-white/70 backdrop-blur-xl rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-white/60 overflow-hidden">
+        <div className="px-6 py-5 border-b border-slate-200/50 flex justify-between items-center bg-white/40">
           <h2 className="text-lg font-bold text-slate-800">Upcoming & Active Jobs</h2>
           <Link to="/projects" className="text-blue-600 hover:text-blue-800 text-sm font-bold">
             View All &rarr;
