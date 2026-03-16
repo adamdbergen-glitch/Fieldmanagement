@@ -3,9 +3,31 @@
 @tailwind utilities;
 
 body {
-  @apply bg-slate-50 text-slate-900;
+  /* 2026 Trend: Subtle mesh/radial gradient background instead of flat color */
+  @apply text-slate-900 min-h-screen relative selection:bg-amber-200 selection:text-amber-900;
+  
+  /* A subtle, warm mesh gradient background */
+  background-color: #f8fafc; /* slate-50 base */
+  background-image: 
+    radial-gradient(at 0% 0%, hsla(38, 100%, 70%, 0.12) 0px, transparent 50%),
+    radial-gradient(at 100% 0%, hsla(210, 100%, 80%, 0.12) 0px, transparent 50%);
+  background-attachment: fixed;
 }
 
+/* 2026 Trend: Smooth, native-feeling custom scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  @apply bg-slate-300 rounded-full hover:bg-slate-400 transition-colors;
+}
+
+/* --- REACT BIG CALENDAR OVERRIDES --- */
+/* Keep all your existing calendar CSS below this line! */
 /* --- REACT BIG CALENDAR OVERRIDES --- */
 
 /* 1. Base Font & Layout */
