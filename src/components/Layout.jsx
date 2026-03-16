@@ -162,7 +162,7 @@ export default function Layout() {
       )}
 
       {/* --- MAIN CONTENT AREA --- */}
-      <main className="flex-1 overflow-auto relative w-full pt-16 md:pt-0 md:pl-72 md:pr-4 md:py-4">
+      <main className="flex-1 overflow-auto relative w-full pt-16 md:pt-0 md:pl-80 md:pr-6 md:py-6">
         <div className="p-4 md:p-8">
           <Outlet />
         </div>
