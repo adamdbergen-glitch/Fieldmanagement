@@ -49,11 +49,12 @@ export default function Layout() {
         </button>
       </div>
 
-      {/* --- SIDEBAR --- */}
+     {/* --- SIDEBAR --- */}
       <aside className={`
-        fixed inset-y-0 left-0 z-50 w-64 bg-slate-900 text-white flex flex-col transition-transform duration-300 ease-in-out shadow-2xl md:shadow-none
-        md:relative md:translate-x-0 
-        ${isMobileOpen ? 'translate-x-0' : '-translate-x-full'}
+        fixed z-50 flex flex-col transition-all duration-500 ease-[cubic-bezier(0.23,1,0.32,1)]
+        md:top-4 md:bottom-4 md:left-4 md:w-64 md:rounded-3xl md:border md:border-white/10
+        bg-slate-900/80 backdrop-blur-2xl text-white shadow-[0_20px_40px_rgba(0,0,0,0.15)]
+        ${isMobileOpen ? 'inset-y-0 left-0 w-64 rounded-none' : '-translate-x-full md:translate-x-0'}
       `}>
         
         {/* Sidebar Header */}
