@@ -222,7 +222,7 @@ export default function TimeClock({ projectId = null }) {
           <button 
             onClick={handleClockIn}
             disabled={gpsLoading}
-            className="w-full py-4 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-xl flex items-center justify-center gap-2 shadow-lg hover:shadow-xl transition-all active:scale-[0.98]"
+            className="w-full py-4 bg-gradient-to-b from-slate-800 to-slate-950 hover:from-slate-700 hover:to-slate-900 text-white font-bold rounded-2xl flex items-center justify-center gap-2 shadow-[0_10px_20px_rgba(0,0,0,0.2)] hover:shadow-[0_15px_30px_rgba(0,0,0,0.3)] hover:-translate-y-0.5 active:scale-[0.97] transition-all duration-300"
           >
             {gpsLoading ? <Loader2 className="animate-spin" /> : <Play size={20} fill="currentColor" />}
             CLOCK IN
@@ -236,7 +236,7 @@ export default function TimeClock({ projectId = null }) {
           <button 
             onClick={handleClockOut}
             disabled={gpsLoading}
-            className="w-full py-4 bg-red-500 hover:bg-red-600 text-white font-bold rounded-xl flex items-center justify-center gap-2 shadow-lg hover:shadow-xl transition-all active:scale-[0.98]"
+            className="w-full py-4 bg-gradient-to-b from-red-500 to-red-600 hover:from-red-400 hover:to-red-500 text-white font-bold rounded-2xl flex items-center justify-center gap-2 shadow-[0_10px_20px_rgba(239,68,68,0.3)] hover:shadow-[0_15px_30px_rgba(239,68,68,0.4)] hover:-translate-y-0.5 active:scale-[0.97] transition-all duration-300"
           >
             {gpsLoading ? <Loader2 className="animate-spin" /> : <Square size={20} fill="currentColor" />}
             CLOCK OUT
