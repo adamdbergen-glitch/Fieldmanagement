@@ -3,7 +3,7 @@ import { Outlet, Link, useLocation } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { 
   LayoutDashboard, Folder, Users, LogOut, Book, Calendar, UserCog, 
-  Menu, X, Clock, Calculator, DollarSign // <--- 1. NEW IMPORT (DollarSign)
+  Menu, X, Clock, Calculator, DollarSign, ClipboardEdit // <--- 1. ADDED ClipboardEdit
 } from 'lucide-react'
 
 // 1. IMPORT CONFIG (For White-Labeling)
@@ -110,11 +110,19 @@ export default function Layout() {
             </Link>
           )}
 
-          {/* FINANCIALS - ADMIN ONLY (NEW) */}
+          {/* FINANCIALS - ADMIN ONLY */}
           {can(userRole, PERMISSIONS.CAN_DELETE_PROJECT) && (
             <Link to="/financials" className={linkClass('/financials')}>
               <DollarSign size={20} />
               Financials
+            </Link>
+          )}
+
+          {/* INTERNAL ESTIMATOR - ADMIN ONLY (NEW) */}
+          {can(userRole, PERMISSIONS.CAN_DELETE_PROJECT) && (
+            <Link to="/estimator" className={linkClass('/estimator')}>
+              <ClipboardEdit size={20} />
+              Lead Estimator
             </Link>
           )}
 
