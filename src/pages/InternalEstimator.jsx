@@ -30,7 +30,7 @@ export default function InternalEstimator() {
     ? calculatePavingEstimate(extractedMeta) 
     : null;
 
-  const handleChat = async (e) => {
+const handleChat = async (e) => {
     e.preventDefault()
     if (!input.trim()) return
 
@@ -40,8 +40,8 @@ export default function InternalEstimator() {
     setIsTyping(true)
 
     try {
-      // NOTE: Replace this URL with your actual live Glitch URL!
-      const res = await fetch('https://pavingstone-chatbot.onrender.com', {
+      // UPDATE THIS LINE BELOW: Add /api/internal-chat to the URL
+      const res = await fetch('https://pavingstone-chatbot.onrender.com/api/internal-chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ messages: [...messages, newMsg] })
