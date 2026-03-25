@@ -10,7 +10,9 @@ export default function InternalEstimator() {
   const navigate = useNavigate()
   const { userProfile } = useAuth()
   const scrollRef = useRef(null)
-
+  const [extractedMeta, setExtractedMeta] = useState(null)
+  const [isSaving, setIsSaving] = useState(false)
+  const [customerInfo, setCustomerInfo] = useState({ name: '', phone: '', email: '', address: '' })
   const [messages, setMessages] = useState([{ role: 'assistant', content: "Hey Adam! What project are we scoping out today?" }])
   const [input, setInput] = useState('')
   const [isTyping, setIsTyping] = useState(false)
