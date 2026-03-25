@@ -74,22 +74,58 @@ const handleChat = async (e) => {
     }
   }
 
-  const handleCreateLead = async () => {
+const handleCreateLead = async () => {
     if (!currentEstimate) return
+    if (!customerInfo.name.trim()) {
+      alert("Please enter a customer name before saving the lead.")
+      return
+    }
+    
     setIsSaving(true)
     
     try {
-      const scopeText = `Auto-extracted via AI Chat:\nSize: ${extractedMeta.sqft} sqft\nType: ${extractedMeta.project_type}\nMaterial: ${extractedMeta.material_code}\nAccess: ${extractedMeta.access_level}\n\nChat Transcript:\n${messages.map(m => `${m.role.toUpperCase()}: ${m.content}`).join('\n')}`
+      // 1. Create the Customer Profile first
+      const { data: newCustomer, error: custError } = await supabase
+        .from('customers')
+        .insert({
+          name: customerInfo.name,
+          email: customerInfo.email,
+          phone: customerInfo.phone,
+          address: customerInfo.address
+        })
+        .select()
+        .single()
 
-      const { data: proj, error } = await supabase.from('projects').insert({
-        name: `Lead: ${extractedMeta.sqft} sqft ${extractedMeta.project_type}`,
-        estimate: currentEstimate.exact_price,
-        status: 'Lead',
-        scope_of_work: scopeText
-      }).select().single()
+      if (custError) throw custError
 
-      if (error) throw error
+      // 2. Format the Notes / Scope of Work
+      const scopeText = `Auto-extracted via AI Chat:
+Size: ${extractedMeta.sqft} sqft
+Type: ${extractedMeta.project_type}
+Material: ${extractedMeta.material_code}
+Access: ${extractedMeta.access_level}
+
+--- Chat Transcript ---
+${messages.map(m => `${m.role.toUpperCase()}: ${m.content}`).join('\n')}`
+
+      // 3. Create the Project Lead and link the Customer ID
+      const { data: proj, error: projError } = await supabase
+        .from('projects')
+        .insert({
+          name: `Lead: ${extractedMeta.sqft} sqft ${extractedMeta.project_type}`,
+          customer_id: newCustomer.id, // Linked to the newly created customer
+          estimate: currentEstimate.exact_price,
+          status: 'Lead',
+          scope_of_work: scopeText
+        })
+        .select()
+        .single()
+
+      if (projError) throw projError
+      
+      // Navigate to the newly created project file
       navigate(`/projects/${proj.id}`)
+      
     } catch (err) {
       alert("Error saving lead: " + err.message)
     } finally {
