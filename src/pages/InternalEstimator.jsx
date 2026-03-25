@@ -201,6 +201,39 @@ ${messages.map(m => `${m.role.toUpperCase()}: ${m.content}`).join('\n')}`
                 className="w-full py-4 bg-white text-slate-900 font-black rounded-xl flex items-center justify-center gap-2 hover:bg-slate-200 transition-all"
               >
                 {isSaving ? <Loader2 className="animate-spin" /> : <UserPlus size={20} />} 
+                {/* ADD THIS NEW CUSTOMER INFO SECTION */}
+            <div className="space-y-2 mt-4">
+              <input 
+                placeholder="Customer Name *" 
+                value={customerInfo.name} 
+                onChange={e => setCustomerInfo({...customerInfo, name: e.target.value})} 
+                className="w-full p-3 bg-slate-800 border border-slate-700 rounded-xl text-sm focus:outline-none focus:border-amber-500 text-white placeholder-slate-400" 
+              />
+              <input 
+                placeholder="Phone Number" 
+                value={customerInfo.phone} 
+                onChange={e => setCustomerInfo({...customerInfo, phone: e.target.value})} 
+                className="w-full p-3 bg-slate-800 border border-slate-700 rounded-xl text-sm focus:outline-none focus:border-amber-500 text-white placeholder-slate-400" 
+              />
+              <input 
+                placeholder="Email Address" 
+                value={customerInfo.email} 
+                onChange={e => setCustomerInfo({...customerInfo, email: e.target.value})} 
+                className="w-full p-3 bg-slate-800 border border-slate-700 rounded-xl text-sm focus:outline-none focus:border-amber-500 text-white placeholder-slate-400" 
+              />
+            </div>
+            {/* END NEW CUSTOMER INFO SECTION */}
+
+            <div className="pt-4 mt-auto">
+              <button 
+                onClick={handleCreateLead} 
+                disabled={isSaving} 
+                className="w-full py-4 bg-white text-slate-900 font-black rounded-xl flex items-center justify-center gap-2 hover:bg-slate-200 transition-all"
+              >
+                {isSaving ? <Loader2 className="animate-spin" /> : <UserPlus size={20} />} 
+                Create Lead File
+              </button>
+            </div>
                 Create Lead File
               </button>
             </div>
