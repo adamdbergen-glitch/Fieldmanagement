@@ -25,7 +25,7 @@ export default function InternalEstimator() {
   })
 
   // 1. ADMIN PROTECTION
-  if (!can(profile?.role, ['admin'])) {
+  if (!can(userProfile?.role, ['admin'])) {
     return (
       <div className="flex flex-col items-center justify-center h-64 text-slate-500">
         <ShieldAlert size={48} className="text-red-400 mb-4" />
