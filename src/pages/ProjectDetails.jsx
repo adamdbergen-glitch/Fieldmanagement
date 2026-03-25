@@ -8,7 +8,7 @@ import {
   MessageSquare, Link as LinkIcon, Check, Edit2, Save, X, 
   DollarSign, Receipt, Plus, Trash2
 } from 'lucide-react'
-import { format, parseISO, differenceInMinutes } from 'date-fns' // <--- ADDED differenceInMinutes
+import { format, parseISO, differenceInMinutes } from 'date-fns'
 import ProjectSOPs from '../components/ProjectSOPs'
 import ProjectMaterials from '../components/ProjectMaterials'
 import ProjectFiles from '../components/ProjectFiles'
@@ -67,18 +67,16 @@ export default function ProjectDetails() {
     }
   })
 
-  // 3. NEW: FETCH LABOR DATA (Logs + Wages + Burden)
+  // 3. FETCH LABOR DATA (Logs + Wages + Burden)
   const { data: laborData } = useQuery({
     queryKey: ['project_labor', id],
     queryFn: async () => {
-      // Get completed logs for this project + employee wage
       const { data: logs } = await supabase
         .from('time_logs')
         .select('clock_in_time, clock_out_time, profile:user_id(wage)')
         .eq('project_id', id)
-        .not('clock_out_time', 'is', null) // Only count finished shifts
+        .not('clock_out_time', 'is', null) 
       
-      // Get tax burden from settings (default to 1.18 if missing)
       const { data: settings } = await supabase
         .from('app_settings')
         .select('setting_value')
@@ -106,24 +104,15 @@ export default function ProjectDetails() {
   // --- CALCULATE TOTALS ---
   const totalExpenses = expenses?.reduce((sum, item) => sum + Number(item.amount), 0) || 0
   
-  // NEW: Calculate Labor Cost
   const laborCost = laborData?.logs.reduce((total, log) => {
     if (!log.clock_out_time || !log.profile?.wage) return total
-    
-    // Calculate exact hours worked
     const minutes = differenceInMinutes(parseISO(log.clock_out_time), parseISO(log.clock_in_time))
     const hours = minutes / 60
-    
-    // Raw Pay = Hours * Wage
     const rawPay = hours * log.profile.wage
-    
-    // Total Cost = Raw Pay * Burden (e.g. 1.18)
     return total + (rawPay * laborData.burden)
   }, 0) || 0
 
   const projectEstimate = Number(project?.estimate || 0)
-  
-  // NEW: Net Profit Calculation (Estimate - Material - Labor)
   const netProfit = projectEstimate - totalExpenses - laborCost
 
   // REAL-TIME LISTENER
@@ -165,7 +154,8 @@ export default function ProjectDetails() {
       address: project.address || project.customer?.address || '',
       city: project.city || '',
       customer_id: project.customer_id || '',
-      estimate: project.estimate || 0 
+      estimate: project.estimate || 0,
+      scope_of_work: project.scope_of_work || '' 
     })
     setIsEditing(true)
   }
@@ -180,7 +170,8 @@ export default function ProjectDetails() {
           address: editForm.address,
           city: editForm.city,
           customer_id: editForm.customer_id || null,
-          estimate: editForm.estimate 
+          estimate: editForm.estimate,
+          scope_of_work: editForm.scope_of_work
         }).eq('id', id)
 
       if (error) throw error
@@ -308,6 +299,16 @@ export default function ProjectDetails() {
                         value={editForm.estimate} onChange={e => setEditForm({...editForm, estimate: e.target.value})} />
                    </div>
 
+                   {/* SCOPE OF WORK TEXTAREA */}
+                   <div>
+                      <label className="text-xs font-bold text-slate-400 uppercase block mb-1">Scope of Work & Notes</label>
+                      <textarea 
+                        className="w-full p-3 border border-slate-300 rounded-lg bg-white min-h-[150px] font-mono text-sm" 
+                        value={editForm.scope_of_work} 
+                        onChange={e => setEditForm({...editForm, scope_of_work: e.target.value})} 
+                      />
+                   </div>
+
                    <div className="grid grid-cols-2 gap-4">
                       <div><label className="text-xs font-bold text-slate-400 uppercase block mb-1">Start Date</label>
                       <input type="date" className="w-full p-2 border border-slate-300 rounded-lg bg-white" value={editForm.start_date || ''} onChange={e => setEditForm({...editForm, start_date: e.target.value})} /></div>
@@ -384,9 +385,22 @@ export default function ProjectDetails() {
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 animate-in fade-in slide-in-from-bottom-2">
               <div className="lg:col-span-2 space-y-6">
                 <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-5">
-                  <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2"><Clock size={14} /> Scope of Work</h3>
-                  <p className="text-slate-700 whitespace-pre-wrap">{project.name}</p>
-                  {(project.address || project.customer?.address) && <div className="mt-6 pt-6 border-t border-slate-100"><p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1">Site Address</p><p className="font-bold text-slate-700">{project.address || project.customer.address}, {project.city}</p></div>}
+                  <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2"><ListChecks size={14} /> Scope of Work & Notes</h3>
+                  
+                  {project.scope_of_work ? (
+                    <div className="text-slate-700 whitespace-pre-wrap text-sm font-mono bg-slate-50 p-4 rounded border border-slate-100">
+                      {project.scope_of_work}
+                    </div>
+                  ) : (
+                    <p className="text-slate-400 italic text-sm">No scope of work defined yet.</p>
+                  )}
+
+                  {(project.address || project.customer?.address) && (
+                    <div className="mt-6 pt-6 border-t border-slate-100">
+                      <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1">Site Address</p>
+                      <p className="font-bold text-slate-700">{project.address || project.customer.address}, {project.city}</p>
+                    </div>
+                  )}
                 </div>
                 <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-5"><ProjectFiles projectId={id} /></div>
               </div>
@@ -427,14 +441,14 @@ export default function ProjectDetails() {
                     <p className="text-2xl font-black text-red-600">-${totalExpenses.toFixed(2)}</p>
                   </div>
                   
-                  {/* NEW: Labor Cost Card */}
+                  {/* Labor Cost Card */}
                   <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
                     <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Labor Cost</p>
                     <p className="text-2xl font-black text-orange-600">-${laborCost.toFixed(2)}</p>
                     <p className="text-[10px] text-slate-400 mt-1">Includes {((laborData?.burden || 1.18) - 1).toFixed(2) * 100}% Burden</p>
                   </div>
 
-                  {/* UPDATED: Net Profit Card */}
+                  {/* Net Profit Card */}
                   <div className={`p-5 rounded-xl border shadow-sm ${netProfit >= 0 ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
                     <p className={`text-xs font-bold uppercase tracking-widest ${netProfit >= 0 ? 'text-green-600' : 'text-red-600'}`}>Net Profit</p>
                     <p className={`text-2xl font-black ${netProfit >= 0 ? 'text-green-700' : 'text-red-700'}`}>${netProfit.toFixed(2)}</p>
