@@ -64,6 +64,17 @@ export default function InternalEstimator() {
       if (data.meta) {
         setExtractedMeta(data.meta)
       }
+
+      // NEW BLOCK: Auto-fill the customer info boxes if the AI found any details
+      if (data.customer) {
+        setCustomerInfo(prev => ({
+          name: data.customer.name || prev.name,
+          phone: data.customer.phone || prev.phone,
+          email: data.customer.email || prev.email,
+          address: data.customer.address || prev.address
+        }))
+      }
+
     } catch (err) {
       console.error("Chat failed:", err)
     } finally {
@@ -190,7 +201,7 @@ ${messages.map(m => `${m.role.toUpperCase()}: ${m.content}`).join('\n')}`
               </div>
             </div>
 
-            {/* CUSTOMER INFO SECTION (Correctly placed) */}
+            {/* CUSTOMER INFO SECTION */}
             <div className="space-y-2 mt-4">
               <input 
                 placeholder="Customer Name *" 
