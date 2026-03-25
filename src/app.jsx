@@ -16,7 +16,8 @@ import Team from './pages/Team'
 import Timesheets from './pages/Timesheets'
 import CustomerPortal from './pages/CustomerPortal'
 import Calculator from './pages/Calculator' 
-import Financials from './pages/Financials' // <--- 1. NEW IMPORT
+import Financials from './pages/Financials'
+import InternalEstimator from './pages/InternalEstimator' // <--- 1. NEW IMPORT
 
 // Create the client for data fetching
 const queryClient = new QueryClient()
@@ -49,9 +50,10 @@ export default function App() {
               
               {/* TOOLS */}
               <Route path="/calculator" element={<Calculator />} />
+              <Route path="/estimator" element={<InternalEstimator />} /> {/* <--- 2. NEW ROUTE */}
               
               {/* ADMIN FINANCIALS */}
-              <Route path="/financials" element={<Financials />} /> {/* <--- 2. NEW ROUTE */}
+              <Route path="/financials" element={<Financials />} />
             </Route>
 
             <Route path="*" element={<Navigate to="/" replace />} />
