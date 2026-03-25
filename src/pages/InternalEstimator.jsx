@@ -4,7 +4,7 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { can } from '../lib/permissions'
 import { calculatePavingEstimate } from '../lib/pricing' 
-import { Send, Bot, UserPlus, Loader2, RefreshCw, Calculator } from 'lucide-center'
+import { Send, Bot, UserPlus, Loader2, RefreshCw, Calculator } from 'lucide-react'
 
 export default function InternalEstimator() {
   const navigate = useNavigate()
