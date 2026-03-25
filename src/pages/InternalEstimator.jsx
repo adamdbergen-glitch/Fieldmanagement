@@ -11,7 +11,6 @@ export default function InternalEstimator() {
   const { userProfile } = useAuth()
   const scrollRef = useRef(null)
 
-  // Cleaned up State (No duplicates)
   const [messages, setMessages] = useState([{ role: 'assistant', content: "Hey Adam! What project are we scoping out today?" }])
   const [input, setInput] = useState('')
   const [isTyping, setIsTyping] = useState(false)
@@ -19,15 +18,12 @@ export default function InternalEstimator() {
   const [isSaving, setIsSaving] = useState(false)
   const [customerInfo, setCustomerInfo] = useState({ name: '', phone: '', email: '', address: '' })
 
-  // Auto-scroll the chat
   useEffect(() => { scrollRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages])
 
-  // Admin Check
   if (!can(userProfile?.role, ['admin'])) {
     return <div className="p-10 text-center font-bold text-slate-500">Admin Access Only</div>
   }
 
-  // Live Math Calculation (Runs locally on the frontend)
   const currentEstimate = (extractedMeta && extractedMeta.sqft > 0) 
     ? calculatePavingEstimate({
         project_type: extractedMeta.project_type || 'patio',
@@ -65,7 +61,6 @@ export default function InternalEstimator() {
         setExtractedMeta(data.meta)
       }
 
-      // NEW BLOCK: Auto-fill the customer info boxes if the AI found any details
       if (data.customer) {
         setCustomerInfo(prev => ({
           name: data.customer.name || prev.name,
@@ -92,7 +87,6 @@ export default function InternalEstimator() {
     setIsSaving(true)
     
     try {
-      // 1. Create the Customer Profile first
       const { data: newCustomer, error: custError } = await supabase
         .from('customers')
         .insert({
@@ -106,17 +100,16 @@ export default function InternalEstimator() {
 
       if (custError) throw custError
 
-      // 2. Format the Notes / Scope of Work
+      // UPDATED: Now uses the clean AI summary instead of the raw transcript
       const scopeText = `Auto-extracted via AI Chat:
 Size: ${extractedMeta.sqft} sqft
 Type: ${extractedMeta.project_type}
 Material: ${extractedMeta.material_code}
 Access: ${extractedMeta.access_level}
 
---- Chat Transcript ---
-${messages.map(m => `${m.role.toUpperCase()}: ${m.content}`).join('\n')}`
+--- Project Summary ---
+${extractedMeta.scope_summary || "No summary provided."}`
 
-      // 3. Create the Project Lead and link the Customer ID
       const { data: proj, error: projError } = await supabase
         .from('projects')
         .insert({
@@ -142,7 +135,6 @@ ${messages.map(m => `${m.role.toUpperCase()}: ${m.content}`).join('\n')}`
 
   return (
     <div className="flex flex-col md:flex-row gap-6 h-[calc(100vh-140px)]">
-      {/* LEFT: CHAT PANEL */}
       <div className="flex-1 bg-white rounded-2xl border border-slate-200 flex flex-col overflow-hidden shadow-sm">
         <div className="p-4 bg-slate-50 border-b flex items-center gap-2 font-bold text-slate-800">
           <Bot size={20} className="text-amber-500"/> Scoping Assistant
@@ -173,7 +165,6 @@ ${messages.map(m => `${m.role.toUpperCase()}: ${m.content}`).join('\n')}`
         </form>
       </div>
 
-      {/* RIGHT: REVIEW SIDEBAR */}
       <div className="w-full md:w-80 bg-slate-900 rounded-2xl p-6 text-white shadow-xl flex flex-col">
         <h2 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-6 flex items-center gap-2">
           <Calculator size={14} /> Lead Variables
@@ -201,7 +192,6 @@ ${messages.map(m => `${m.role.toUpperCase()}: ${m.content}`).join('\n')}`
               </div>
             </div>
 
-            {/* CUSTOMER INFO SECTION */}
             <div className="space-y-2 mt-4">
               <input 
                 placeholder="Customer Name *" 
@@ -223,7 +213,6 @@ ${messages.map(m => `${m.role.toUpperCase()}: ${m.content}`).join('\n')}`
               />
             </div>
 
-            {/* CREATE LEAD BUTTON */}
             <div className="pt-4 mt-auto">
               <button 
                 onClick={handleCreateLead} 
