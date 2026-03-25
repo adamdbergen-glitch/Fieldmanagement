@@ -3,21 +3,21 @@ import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { can } from '../lib/permissions'
-import { calculatePavingEstimate } from '../lib/pricing' // Uses the local, updated math
+import { calculatePavingEstimate } from '../lib/pricing' 
 import { Send, Bot, UserPlus, Loader2, RefreshCw, Calculator } from 'lucide-react'
 
 export default function InternalEstimator() {
   const navigate = useNavigate()
   const { userProfile } = useAuth()
   const scrollRef = useRef(null)
-  const [extractedMeta, setExtractedMeta] = useState(null)
-  const [isSaving, setIsSaving] = useState(false)
-  const [customerInfo, setCustomerInfo] = useState({ name: '', phone: '', email: '', address: '' })
+
+  // Cleaned up State (No duplicates)
   const [messages, setMessages] = useState([{ role: 'assistant', content: "Hey Adam! What project are we scoping out today?" }])
   const [input, setInput] = useState('')
   const [isTyping, setIsTyping] = useState(false)
   const [extractedMeta, setExtractedMeta] = useState(null)
   const [isSaving, setIsSaving] = useState(false)
+  const [customerInfo, setCustomerInfo] = useState({ name: '', phone: '', email: '', address: '' })
 
   // Auto-scroll the chat
   useEffect(() => { scrollRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages])
@@ -27,7 +27,7 @@ export default function InternalEstimator() {
     return <div className="p-10 text-center font-bold text-slate-500">Admin Access Only</div>
   }
 
-// Live Math Calculation (Runs locally on the frontend)
+  // Live Math Calculation (Runs locally on the frontend)
   const currentEstimate = (extractedMeta && extractedMeta.sqft > 0) 
     ? calculatePavingEstimate({
         project_type: extractedMeta.project_type || 'patio',
@@ -36,14 +36,13 @@ export default function InternalEstimator() {
         city_town: extractedMeta.city_town || 'Winnipeg',
         is_out_of_town: extractedMeta.is_out_of_town || false,
         areas: [{ 
-          // Forcing Number() guarantees it won't fail if the AI passed a string
           square_feet: Number(extractedMeta.sqft) || 0, 
           is_backyard: !!extractedMeta.isBackyard 
         }]
       }) 
     : null;
 
-const handleChat = async (e) => {
+  const handleChat = async (e) => {
     e.preventDefault()
     if (!input.trim()) return
 
@@ -53,7 +52,6 @@ const handleChat = async (e) => {
     setIsTyping(true)
 
     try {
-      // UPDATE THIS LINE BELOW: Add /api/internal-chat to the URL
       const res = await fetch('https://pavingstone-chatbot.onrender.com/api/internal-chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -63,7 +61,6 @@ const handleChat = async (e) => {
       
       setMessages(prev => [...prev, { role: 'assistant', content: data.reply }])
       
-      // Update sidebar state
       if (data.meta) {
         setExtractedMeta(data.meta)
       }
@@ -74,7 +71,7 @@ const handleChat = async (e) => {
     }
   }
 
-const handleCreateLead = async () => {
+  const handleCreateLead = async () => {
     if (!currentEstimate) return
     if (!customerInfo.name.trim()) {
       alert("Please enter a customer name before saving the lead.")
@@ -113,7 +110,7 @@ ${messages.map(m => `${m.role.toUpperCase()}: ${m.content}`).join('\n')}`
         .from('projects')
         .insert({
           name: `Lead: ${extractedMeta.sqft} sqft ${extractedMeta.project_type}`,
-          customer_id: newCustomer.id, // Linked to the newly created customer
+          customer_id: newCustomer.id, 
           estimate: currentEstimate.exact_price,
           status: 'Lead',
           scope_of_work: scopeText
@@ -123,7 +120,6 @@ ${messages.map(m => `${m.role.toUpperCase()}: ${m.content}`).join('\n')}`
 
       if (projError) throw projError
       
-      // Navigate to the newly created project file
       navigate(`/projects/${proj.id}`)
       
     } catch (err) {
@@ -173,7 +169,7 @@ ${messages.map(m => `${m.role.toUpperCase()}: ${m.content}`).join('\n')}`
         </h2>
         
         {currentEstimate ? (
-          <div className="space-y-6 flex-1">
+          <div className="space-y-6 flex-1 flex flex-col">
             <div className="bg-amber-500/10 border border-amber-500/20 p-4 rounded-xl">
               <p className="text-[10px] text-amber-500 font-bold uppercase mb-1">Target Internal Price</p>
               <p className="text-3xl font-black text-amber-400">${currentEstimate.exact_price?.toLocaleString()}</p>
@@ -194,14 +190,7 @@ ${messages.map(m => `${m.role.toUpperCase()}: ${m.content}`).join('\n')}`
               </div>
             </div>
 
-            <div className="pt-4 mt-auto">
-              <button 
-                onClick={handleCreateLead} 
-                disabled={isSaving} 
-                className="w-full py-4 bg-white text-slate-900 font-black rounded-xl flex items-center justify-center gap-2 hover:bg-slate-200 transition-all"
-              >
-                {isSaving ? <Loader2 className="animate-spin" /> : <UserPlus size={20} />} 
-                {/* ADD THIS NEW CUSTOMER INFO SECTION */}
+            {/* CUSTOMER INFO SECTION (Correctly placed) */}
             <div className="space-y-2 mt-4">
               <input 
                 placeholder="Customer Name *" 
@@ -222,8 +211,8 @@ ${messages.map(m => `${m.role.toUpperCase()}: ${m.content}`).join('\n')}`
                 className="w-full p-3 bg-slate-800 border border-slate-700 rounded-xl text-sm focus:outline-none focus:border-amber-500 text-white placeholder-slate-400" 
               />
             </div>
-            {/* END NEW CUSTOMER INFO SECTION */}
 
+            {/* CREATE LEAD BUTTON */}
             <div className="pt-4 mt-auto">
               <button 
                 onClick={handleCreateLead} 
@@ -231,9 +220,6 @@ ${messages.map(m => `${m.role.toUpperCase()}: ${m.content}`).join('\n')}`
                 className="w-full py-4 bg-white text-slate-900 font-black rounded-xl flex items-center justify-center gap-2 hover:bg-slate-200 transition-all"
               >
                 {isSaving ? <Loader2 className="animate-spin" /> : <UserPlus size={20} />} 
-                Create Lead File
-              </button>
-            </div>
                 Create Lead File
               </button>
             </div>
