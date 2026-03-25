@@ -26,12 +26,17 @@ export default function InternalEstimator() {
   }
 
 // Live Math Calculation (Runs locally on the frontend)
-  const currentEstimate = extractedMeta?.sqft > 0 
+  const currentEstimate = (extractedMeta && extractedMeta.sqft > 0) 
     ? calculatePavingEstimate({
-        ...extractedMeta,
+        project_type: extractedMeta.project_type || 'patio',
+        access_level: extractedMeta.access_level || 'medium',
+        material_code: extractedMeta.material_code || 'barkman_holland',
+        city_town: extractedMeta.city_town || 'Winnipeg',
+        is_out_of_town: extractedMeta.is_out_of_town || false,
         areas: [{ 
-          square_feet: extractedMeta.sqft, 
-          is_backyard: extractedMeta.isBackyard 
+          // Forcing Number() guarantees it won't fail if the AI passed a string
+          square_feet: Number(extractedMeta.sqft) || 0, 
+          is_backyard: !!extractedMeta.isBackyard 
         }]
       }) 
     : null;
