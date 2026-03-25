@@ -41,7 +41,7 @@ export default function InternalEstimator() {
 
     try {
       // NOTE: Replace this URL with your actual live Glitch URL!
-      const res = await fetch('http://localhost:3001/api/internal-chat', {
+      const res = await fetch('https://pavingstone-chatbot.onrender.com', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ messages: [...messages, newMsg] })
