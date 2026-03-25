@@ -1,188 +1,168 @@
-import React, { useState } from 'react'
+import React, { useState, useRef, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
-import { can, PERMISSIONS } from '../lib/permissions'
-import { calculatePavingEstimate } from '../lib/pricing' // Your imported math
-import { Calculator, UserPlus, DollarSign, Save, Loader2, ShieldAlert } from 'lucide-react'
+import { can } from '../lib/permissions'
+import { calculatePavingEstimate } from '../lib/pricing' // Uses the local, updated math
+import { Send, Bot, UserPlus, Loader2, RefreshCw, Calculator } from 'lucide-react'
 
 export default function InternalEstimator() {
   const navigate = useNavigate()
-  const { user, userProfile } = useAuth()
-  const [isSubmitting, setIsSubmitting] = useState(false)
+  const { userProfile } = useAuth()
+  const scrollRef = useRef(null)
 
-  // Customer State (Simplified for rapid Lead entry)
-  const [customer, setCustomer] = useState({ name: '', email: '', phone: '' })
+  const [messages, setMessages] = useState([{ role: 'assistant', content: "Hey Adam! What project are we scoping out today?" }])
+  const [input, setInput] = useState('')
+  const [isTyping, setIsTyping] = useState(false)
+  const [extractedMeta, setExtractedMeta] = useState(null)
+  const [isSaving, setIsSaving] = useState(false)
 
-  // Estimator State
-  const [estimateData, setEstimateData] = useState({
-    project_type: 'patio',
-    sqft: '',
-    material_code: 'barkman_holland',
-    access_level: 'medium',
-    isBackyard: true,
-    is_out_of_town: false
-  })
+  // Auto-scroll the chat
+  useEffect(() => { scrollRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages])
 
-  // 1. ADMIN PROTECTION
+  // Admin Check
   if (!can(userProfile?.role, ['admin'])) {
-    return (
-      <div className="flex flex-col items-center justify-center h-64 text-slate-500">
-        <ShieldAlert size={48} className="text-red-400 mb-4" />
-        <h2 className="text-xl font-bold">Admin Access Only</h2>
-        <p>You do not have permission to view the internal estimator.</p>
-      </div>
-    )
+    return <div className="p-10 text-center font-bold text-slate-500">Admin Access Only</div>
   }
 
-  // 2. LIVE CALCULATION
-  const currentEstimate = estimateData.sqft > 0 
-    ? calculatePavingEstimate({
-        project_type: estimateData.project_type,
-        areas: [{ square_feet: parseFloat(estimateData.sqft), is_backyard: estimateData.isBackyard }],
-        access_level: estimateData.access_level,
-        material_code: estimateData.material_code,
-        city_town: "Winnipeg",
-        is_out_of_town: estimateData.is_out_of_town
-      })
+  // Live Math Calculation (Runs locally on the frontend)
+  const currentEstimate = extractedMeta?.sqft > 0 
+    ? calculatePavingEstimate(extractedMeta) 
     : null;
 
-  // 3. SUBMIT / SAVE LEAD TO SUPABASE
-  const handleSaveLead = async (e) => {
+  const handleChat = async (e) => {
     e.preventDefault()
-    if (!currentEstimate) return alert("Please enter square footage to generate an estimate.")
-    setIsSubmitting(true)
+    if (!input.trim()) return
+
+    const newMsg = { role: 'user', content: input }
+    setMessages(prev => [...prev, newMsg])
+    setInput('')
+    setIsTyping(true)
 
     try {
-      // Step A: Create Customer
-      const { data: createdCust, error: custError } = await supabase
-        .from('customers')
-        .insert({
-          name: customer.name,
-          email: customer.email,
-          phone: customer.phone,
-        })
-        .select()
-        .single()
+      // NOTE: Replace this URL with your actual live Glitch URL!
+      const res = await fetch('http://localhost:3001/api/internal-chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messages: [...messages, newMsg] })
+      })
+      const data = await res.json()
       
-      if (custError) throw custError
-
-      // Step B: Create Project marked as a "Lead"
-      const scopeText = `Auto-generated Estimate:\n${currentEstimate.details}\nAccess: ${estimateData.access_level}\nTarget Price: $${currentEstimate.exact_price}`;
-
-      const { data: projectData, error: projectError } = await supabase
-        .from('projects')
-        .insert({
-          name: `${estimateData.project_type} - ${customer.name}`,
-          customer_id: createdCust.id,
-          estimate: currentEstimate.exact_price, // Save the exact internal price
-          scope_of_work: scopeText,
-          status: 'Lead' // Categorizes it perfectly
-        })
-        .select()
-        .single()
-
-      if (projectError) throw projectError
-
-      // Success! Redirect to the newly created project
-      navigate(`/projects/${projectData.id}`)
-
-    } catch (error) {
-      alert('Error saving lead: ' + error.message)
+      setMessages(prev => [...prev, { role: 'assistant', content: data.reply }])
+      
+      // Update sidebar state
+      if (data.meta) {
+        setExtractedMeta(data.meta)
+      }
+    } catch (err) {
+      console.error("Chat failed:", err)
     } finally {
-      setIsSubmitting(false)
+      setIsTyping(false)
+    }
+  }
+
+  const handleCreateLead = async () => {
+    if (!currentEstimate) return
+    setIsSaving(true)
+    
+    try {
+      const scopeText = `Auto-extracted via AI Chat:\nSize: ${extractedMeta.sqft} sqft\nType: ${extractedMeta.project_type}\nMaterial: ${extractedMeta.material_code}\nAccess: ${extractedMeta.access_level}\n\nChat Transcript:\n${messages.map(m => `${m.role.toUpperCase()}: ${m.content}`).join('\n')}`
+
+      const { data: proj, error } = await supabase.from('projects').insert({
+        name: `Lead: ${extractedMeta.sqft} sqft ${extractedMeta.project_type}`,
+        estimate: currentEstimate.exact_price,
+        status: 'Lead',
+        scope_of_work: scopeText
+      }).select().single()
+
+      if (error) throw error
+      navigate(`/projects/${proj.id}`)
+    } catch (err) {
+      alert("Error saving lead: " + err.message)
+    } finally {
+      setIsSaving(false)
     }
   }
 
   return (
-    <div className="max-w-3xl mx-auto pb-10 space-y-6">
-      <div className="flex items-center gap-3">
-        <div className="p-3 bg-amber-500 text-slate-900 rounded-xl shadow-lg"><Calculator size={24} strokeWidth={2.5}/></div>
-        <h1 className="text-2xl font-black text-slate-900">Internal Estimator</h1>
+    <div className="flex flex-col md:flex-row gap-6 h-[calc(100vh-140px)]">
+      {/* LEFT: CHAT PANEL */}
+      <div className="flex-1 bg-white rounded-2xl border border-slate-200 flex flex-col overflow-hidden shadow-sm">
+        <div className="p-4 bg-slate-50 border-b flex items-center gap-2 font-bold text-slate-800">
+          <Bot size={20} className="text-amber-500"/> Scoping Assistant
+        </div>
+        
+        <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-slate-50/30">
+          {messages.map((m, i) => (
+            <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+              <div className={`p-3 rounded-2xl max-w-[85%] ${m.role === 'user' ? 'bg-amber-500 text-slate-900 font-medium rounded-tr-none' : 'bg-white border text-slate-700 rounded-tl-none'}`}>
+                {m.content}
+              </div>
+            </div>
+          ))}
+          {isTyping && <div className="text-slate-400 text-xs animate-pulse italic">Extracting details...</div>}
+          <div ref={scrollRef} />
+        </div>
+
+        <form onSubmit={handleChat} className="p-4 border-t flex gap-2">
+          <input 
+            className="flex-1 p-3 bg-slate-100 rounded-xl outline-none focus:ring-2 focus:ring-amber-500 transition-all" 
+            value={input} 
+            onChange={e => setInput(e.target.value)} 
+            placeholder="e.g. 400 sqft backyard patio with Barkman Fjord" 
+          />
+          <button disabled={isTyping} className="p-3 bg-slate-900 text-white rounded-xl hover:bg-slate-800 disabled:opacity-50">
+            <Send size={20} />
+          </button>
+        </form>
       </div>
 
-      <form onSubmit={handleSaveLead} className="space-y-6">
+      {/* RIGHT: REVIEW SIDEBAR */}
+      <div className="w-full md:w-80 bg-slate-900 rounded-2xl p-6 text-white shadow-xl flex flex-col">
+        <h2 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-6 flex items-center gap-2">
+          <Calculator size={14} /> Lead Variables
+        </h2>
         
-        {/* CUSTOMER ENTRY */}
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
-          <h2 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2">
-            <UserPlus size={20} className="text-blue-600" /> New Lead Details
-          </h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <input required placeholder="Full Name" className="p-3 border rounded-lg focus:border-amber-500 outline-none" 
-              value={customer.name} onChange={e => setCustomer({ ...customer, name: e.target.value })} />
-            <input type="tel" placeholder="Phone Number" className="p-3 border rounded-lg focus:border-amber-500 outline-none" 
-              value={customer.phone} onChange={e => setCustomer({ ...customer, phone: e.target.value })} />
-            <input type="email" placeholder="Email (Optional)" className="md:col-span-2 p-3 border rounded-lg focus:border-amber-500 outline-none" 
-              value={customer.email} onChange={e => setCustomer({ ...customer, email: e.target.value })} />
-          </div>
-        </div>
-
-        {/* PROJECT SPECS */}
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
-          <h2 className="text-lg font-bold text-slate-800 mb-4">Project Variables</h2>
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="text-xs font-bold text-slate-500">SqFt</label>
-              <input required type="number" className="w-full p-3 border rounded-lg font-bold text-xl" 
-                value={estimateData.sqft} onChange={e => setEstimateData({ ...estimateData, sqft: e.target.value })} />
+        {currentEstimate ? (
+          <div className="space-y-6 flex-1">
+            <div className="bg-amber-500/10 border border-amber-500/20 p-4 rounded-xl">
+              <p className="text-[10px] text-amber-500 font-bold uppercase mb-1">Target Internal Price</p>
+              <p className="text-3xl font-black text-amber-400">${currentEstimate.exact_price?.toLocaleString()}</p>
             </div>
-            <div>
-              <label className="text-xs font-bold text-slate-500">Project Type</label>
-              <select className="w-full p-3 border rounded-lg font-bold" 
-                value={estimateData.project_type} onChange={e => setEstimateData({ ...estimateData, project_type: e.target.value })}>
-                <option value="patio">Patio</option>
-                <option value="walkway">Walkway</option>
-                <option value="driveway">Driveway</option>
-              </select>
-            </div>
-            <div className="col-span-2">
-              <label className="text-xs font-bold text-slate-500">Material Selection</label>
-              <select className="w-full p-3 border rounded-lg font-bold" 
-                value={estimateData.material_code} onChange={e => setEstimateData({ ...estimateData, material_code: e.target.value })}>
-                <option value="barkman_holland">Barkman Holland (Budget)</option>
-                <option value="barkman_broadway_65">Barkman Broadway (Budget/Mid)</option>
-                <option value="barkman_roman">Barkman Roman (Midrange)</option>
-                <option value="belgard_dimensions">Belgard Dimensions (Midrange)</option>
-                <option value="barkman_fjord">Barkman Fjord (Premium)</option>
-                {/* Add your other materials here */}
-              </select>
-            </div>
-            
-            <label className="flex items-center gap-2 p-3 border rounded-lg bg-slate-50 cursor-pointer">
-              <input type="checkbox" className="w-5 h-5 accent-amber-500" 
-                checked={estimateData.isBackyard} onChange={e => setEstimateData({ ...estimateData, isBackyard: e.target.checked })} />
-              <span className="font-bold text-sm">Backyard (+10% Labour)</span>
-            </label>
-            
-            <label className="flex items-center gap-2 p-3 border rounded-lg bg-slate-50 cursor-pointer">
-              <input type="checkbox" className="w-5 h-5 accent-amber-500" 
-                checked={estimateData.access_level === 'difficult'} 
-                onChange={e => setEstimateData({ ...estimateData, access_level: e.target.checked ? 'difficult' : 'medium' })} />
-              <span className="font-bold text-sm">Difficult Access (+15%)</span>
-            </label>
-          </div>
-        </div>
 
-        {/* LIVE RESULTS */}
-        <div className="bg-slate-900 text-white p-6 rounded-xl shadow-xl flex items-center justify-between">
-          <div>
-            <p className="text-slate-400 text-sm font-bold uppercase">Internal Target Price</p>
-            <h2 className="text-4xl font-black text-amber-400 mt-1">
-              {currentEstimate ? `$${currentEstimate.exact_price.toLocaleString()}` : '$0'}
-            </h2>
-            {currentEstimate && <p className="text-xs text-slate-400 mt-2">{currentEstimate.details}</p>}
-          </div>
-          
-          <button 
-            type="submit" disabled={isSubmitting || !currentEstimate}
-            className="px-6 py-4 bg-white text-slate-900 font-bold rounded-xl hover:bg-slate-200 disabled:opacity-50 flex items-center gap-2 transition-all">
-            {isSubmitting ? <Loader2 className="animate-spin" /> : <Save />}
-            Save as Lead
-          </button>
-        </div>
+            <div className="space-y-3">
+              <div className="bg-slate-800 p-3 rounded-xl border border-slate-700 flex justify-between items-center">
+                <span className="text-xs text-slate-400 font-bold uppercase">Size</span>
+                <span className="font-bold">{extractedMeta.sqft} sqft</span>
+              </div>
+              <div className="bg-slate-800 p-3 rounded-xl border border-slate-700 flex flex-col gap-1">
+                <span className="text-xs text-slate-400 font-bold uppercase">Material</span>
+                <span className="font-bold text-sm truncate">{extractedMeta.material_code}</span>
+              </div>
+              <div className="bg-slate-800 p-3 rounded-xl border border-slate-700 flex justify-between items-center">
+                <span className="text-xs text-slate-400 font-bold uppercase">Access</span>
+                <span className="font-bold capitalize">{extractedMeta.access_level}</span>
+              </div>
+            </div>
 
-      </form>
+            <div className="pt-4 mt-auto">
+              <button 
+                onClick={handleCreateLead} 
+                disabled={isSaving} 
+                className="w-full py-4 bg-white text-slate-900 font-black rounded-xl flex items-center justify-center gap-2 hover:bg-slate-200 transition-all"
+              >
+                {isSaving ? <Loader2 className="animate-spin" /> : <UserPlus size={20} />} 
+                Create Lead File
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="flex-1 flex flex-col items-center justify-center opacity-20 text-center">
+            <RefreshCw size={40} className="mb-4" />
+            <p className="text-xs font-bold uppercase tracking-wider">Start chatting<br/>to generate price</p>
+          </div>
+        )}
+      </div>
     </div>
   )
 }
