@@ -25,9 +25,15 @@ export default function InternalEstimator() {
     return <div className="p-10 text-center font-bold text-slate-500">Admin Access Only</div>
   }
 
-  // Live Math Calculation (Runs locally on the frontend)
+// Live Math Calculation (Runs locally on the frontend)
   const currentEstimate = extractedMeta?.sqft > 0 
-    ? calculatePavingEstimate(extractedMeta) 
+    ? calculatePavingEstimate({
+        ...extractedMeta,
+        areas: [{ 
+          square_feet: extractedMeta.sqft, 
+          is_backyard: extractedMeta.isBackyard 
+        }]
+      }) 
     : null;
 
 const handleChat = async (e) => {
