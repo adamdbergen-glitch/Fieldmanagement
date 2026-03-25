@@ -8,7 +8,7 @@ import { Calculator, UserPlus, DollarSign, Save, Loader2, ShieldAlert } from 'lu
 
 export default function InternalEstimator() {
   const navigate = useNavigate()
-  const { user, profile } = useAuth() // Assuming 'profile' holds the role
+  const { user, userProfile } = useAuth()
   const [isSubmitting, setIsSubmitting] = useState(false)
 
   // Customer State (Simplified for rapid Lead entry)
