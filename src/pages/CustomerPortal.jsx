@@ -4,9 +4,10 @@ import { useQuery } from '@tanstack/react-query'
 import { supabase } from '../lib/supabase'
 import { 
   MapPin, Calendar, CheckCircle2, Circle, Clock, Loader2, 
-  Hammer, MessageSquare, Image as ImageIcon, Send, DollarSign, Sparkles, Phone, Mail, LayoutDashboard, FileSignature, X
+  Hammer, MessageSquare, Image as ImageIcon, Send, DollarSign, Sparkles, Phone, Mail, LayoutDashboard, FileSignature, X, AlertCircle
 } from 'lucide-react'
 import { format, parseISO, differenceInDays } from 'date-fns'
+import { addWorkDays, isWorkDay } from '../lib/dateUtils' 
 import { APP_CONFIG } from '../config' 
 
 const CONTRACT_TERMS = `THE PAVINGSTONE PROS CONTRACT 
@@ -117,34 +118,70 @@ export default function CustomerPortal() {
         file_type: 'document'
       });
 
-      // 4. Update status in Supabase 
+      // 4. AUTO-SCHEDULING LOGIC
+      let newStartDate = new Date();
+      newStartDate.setDate(newStartDate.getDate() + 1); // Default to tomorrow
+      
+      const { data: lastProjects } = await supabase
+        .from('projects')
+        .select('start_date, duration_days')
+        .in('status', ['Scheduled', 'In Progress'])
+        .order('start_date', { ascending: false })
+        .limit(1);
+
+      if (lastProjects && lastProjects.length > 0 && lastProjects[0].start_date) {
+        const lastStart = new Date(lastProjects[0].start_date);
+        const duration = lastProjects[0].duration_days || 1;
+        newStartDate = addWorkDays(lastStart, duration);
+      } else {
+        // Make sure it lands on a Mon-Thurs working day
+        while (!isWorkDay(newStartDate)) {
+          newStartDate.setDate(newStartDate.getDate() + 1);
+        }
+      }
+
+      // 5. Update status and start_date in Supabase 
       const { error: statusError } = await supabase
         .from('projects')
-        .update({ status: 'Scheduled' }) 
+        .update({ 
+          status: 'Scheduled',
+          start_date: newStartDate.toISOString() 
+        }) 
         .eq('id', project.id)
       if (statusError) throw statusError
 
-      // 5. Send Emails (Adam + Client Receipt)
+      // 6. GET CUSTOMER EMAIL SAFELY
+      let clientEmail = project.customer_email;
+      if (!clientEmail && project.customer_id) {
+        const { data: cData } = await supabase.from('customers').select('email').eq('id', project.customer_id).single();
+        if (cData?.email) clientEmail = cData.email;
+      }
+
+      const formattedStartDate = format(newStartDate, 'MMMM do, yyyy');
+
+      // 7. Send Emails (Adam + Client Receipt)
       await fetch('https://pavingstone-chatbot.onrender.com/api/approve-estimate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           customerName: signatureName,
-          customerEmail: project.customer_email || null,
+          customerEmail: clientEmail,
           projectName: project.name,
           adminLink: `${window.location.origin}/projects/${project.id}`,
-          contractUrl: contractUrl
+          contractUrl: contractUrl,
+          portalLink: window.location.href, // Send them back to this URL
+          startDate: formattedStartDate
         })
       })
 
-      // 6. Automated Comment
+      // 8. Automated Comment on Dashboard
       await supabase.from('project_comments').insert({
         project_id: project.id,
-        content: `✅ The client (${signatureName}) has officially approved the estimate for $${Number(project.estimate).toLocaleString()} and signed the contract.`,
+        content: `✅ The client (${signatureName}) has officially approved the estimate and signed the contract.\n🗓️ Auto-scheduled for: ${formattedStartDate}\n💰 The client has been reminded to send their $500 deposit.`,
         is_from_client: true
       })
 
-      alert("Thank you! Your project has been approved. A copy of the contract has been emailed to you.")
+      alert("Thank you! Your project has been approved and scheduled. Please remember to send your $500 deposit to adam@pavingstone.pro to secure your spot. A copy of the contract has been emailed to you.")
       window.location.reload() 
     } catch (err) {
       alert("There was an issue approving the project: " + err.message)
@@ -397,6 +434,24 @@ export default function CustomerPortal() {
             </div>
 
             <div className="p-6 border-t border-slate-100 bg-slate-50">
+              
+              {/* DEPOSIT REMINDER BOX */}
+              <div className="mb-6 bg-amber-50 border border-amber-200 rounded-xl p-4 flex gap-3 items-start shadow-sm">
+                <div className="w-8 h-8 rounded-full bg-amber-100 flex items-center justify-center shrink-0">
+                  <DollarSign size={16} className="text-amber-600" />
+                </div>
+                <div>
+                  <p className="text-sm font-bold text-slate-800">Deposit Reminder</p>
+                  <p className="text-xs text-slate-600 mt-1">
+                    As per section 4.1 of the contract, a <strong>$500 non-refundable deposit</strong> is required to secure your spot on the schedule.
+                  </p>
+                  <div className="mt-3 text-xs font-medium text-slate-700 space-y-1.5">
+                    <p>✅ <strong>E-Transfer:</strong> Please send to <a href="mailto:adam@pavingstone.pro" className="text-blue-600 font-bold hover:underline">adam@pavingstone.pro</a> (No password required)</p>
+                    <p>✅ <strong>Other Methods:</strong> We also accept Cash or Cheque.</p>
+                  </div>
+                </div>
+              </div>
+
               <label className="block text-sm font-bold text-slate-800 mb-2">9. CUSTOMER AUTHORIZATION</label>
               <p className="text-xs text-slate-500 mb-4">By typing your full name below, you authorize The Paving Stone Pros to commence the agreed-upon project under the Terms & Conditions outlined above.</p>
               
