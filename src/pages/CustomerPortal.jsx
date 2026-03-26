@@ -15,6 +15,7 @@ export default function CustomerPortal() {
   const [file, setFile] = useState(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [feedbackSent, setFeedbackSent] = useState(false)
+  const [isApproving, setIsApproving] = useState(false)
   const fileInputRef = useRef(null)
 
   // 1. DATA FETCHING (Unchanged)
@@ -53,7 +54,48 @@ export default function CustomerPortal() {
     finally { setIsSubmitting(false) }
   }
 
-  // 3. LOADING & ERROR STATES
+  // 3. HANDLE APPROVAL
+  const handleApprove = async () => {
+    if (!window.confirm("Ready to approve this estimate and move forward?")) return
+    setIsApproving(true)
+    
+    try {
+      // 1. Update status in Supabase so it shows on your dashboard immediately
+      const { error } = await supabase
+        .from('projects')
+        .update({ status: 'Scheduled' }) // Or 'In Progress', whatever you prefer
+        .eq('id', project.id)
+      
+      if (error) throw error
+
+      // 2. Email Adam
+      await fetch('https://pavingstone-chatbot.onrender.com/api/approve-estimate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          customerName: project.customer_name || 'A client',
+          projectName: project.name,
+          adminLink: `${window.location.origin}/projects/${project.id}`
+        })
+      })
+
+      // 3. Create an automated comment in the site log
+      await supabase.from('project_comments').insert({
+        project_id: project.id,
+        content: `✅ The client has officially approved the estimate for $${Number(project.estimate).toLocaleString()}.`,
+        is_from_client: true
+      })
+
+      alert("Thank you! Your project has been approved. The team will be in touch shortly.")
+      window.location.reload() // Refresh to show updated status
+    } catch (err) {
+      alert("There was an issue approving the project. Please try again.")
+    } finally {
+      setIsApproving(false)
+    }
+  }
+
+  // 4. LOADING & ERROR STATES
   if (isLoading) return (
     <div className="min-h-screen flex flex-col items-center justify-center"><Loader2 className="animate-spin text-amber-500 mb-4" size={40} /><p className="text-slate-500 font-medium">Loading your project...</p></div>
   )
@@ -68,7 +110,7 @@ export default function CustomerPortal() {
     </div>
   )
 
-  // 4. HELPERS (Unchanged)
+  // 5. HELPERS (Unchanged)
   const getStepStatus = (stepName) => {
     const statusMap = { 'New': 0, 'Scheduled': 1, 'In Progress': 2, 'Completed': 3 }
     const currentStep = statusMap[project.status] || 0
@@ -153,9 +195,21 @@ export default function CustomerPortal() {
               </div>
               
               <div className="relative z-10">
-                <div className="text-3xl lg:text-4xl font-black tracking-tighter text-white">
+                <div className="text-3xl lg:text-4xl font-black tracking-tighter text-white mb-4">
                    ${Number(project.estimate).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}
                 </div>
+
+                {/* NEW APPROVAL BUTTON (Only shows if project is 'New') */}
+                {project.status === 'New' && (
+                  <button 
+                    onClick={handleApprove}
+                    disabled={isApproving}
+                    className="w-full bg-green-500 hover:bg-green-400 text-slate-900 font-bold py-3 rounded-xl transition-colors flex items-center justify-center gap-2"
+                  >
+                    {isApproving ? <Loader2 size={18} className="animate-spin" /> : <CheckCircle2 size={18} />}
+                    Approve Estimate
+                  </button>
+                )}
               </div>
             </div>
           )}
