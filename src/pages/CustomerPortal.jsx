@@ -159,7 +159,7 @@ export default function CustomerPortal() {
 
       const formattedStartDate = format(newStartDate, 'MMMM do, yyyy');
 
-// 7. Send Emails (Adam + Client Receipt + Webhook)
+      // 7. Send Emails (Adam + Client Receipt + ZAPIER WEBHOOK)
       await fetch('https://pavingstone-chatbot.onrender.com/api/approve-estimate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -167,14 +167,14 @@ export default function CustomerPortal() {
           customerName: signatureName,
           customerEmail: clientEmail,
           projectName: project.name,
-          estimateAmount: project.estimate, // <--- THIS LINE WAS MISSING!
+          estimateAmount: project.estimate, // <--- Added estimate amount for QuickBooks!
           adminLink: `${window.location.origin}/projects/${project.id}`,
           contractUrl: contractUrl,
-          portalLink: window.location.href, 
+          portalLink: window.location.href, // Send them back to this URL
           startDate: formattedStartDate
         })
       })
-      
+
       // 8. Automated Comment on Dashboard
       await supabase.from('project_comments').insert({
         project_id: project.id,
