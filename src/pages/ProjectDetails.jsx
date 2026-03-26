@@ -6,7 +6,7 @@ import {
   ArrowLeft, MapPin, Clock, Phone, Navigation, 
   ShieldAlert, ListChecks, Truck, Info, Calendar,
   MessageSquare, Link as LinkIcon, Check, Edit2, Save, X, 
-  DollarSign, Receipt, Plus, Trash2, Send
+  DollarSign, Receipt, Plus, Trash2, Send, MailQuestion
 } from 'lucide-react'
 import { format, parseISO, differenceInMinutes } from 'date-fns'
 import ProjectSOPs from '../components/ProjectSOPs'
@@ -15,7 +15,6 @@ import ProjectFiles from '../components/ProjectFiles'
 import ProjectCrew from '../components/ProjectCrew'
 import ProjectComments from '../components/ProjectComments'
 
-// AUTH & PERMISSIONS
 import { useAuth } from '../contexts/AuthContext'
 import { can, PERMISSIONS } from '../lib/permissions'
 
@@ -27,71 +26,46 @@ export default function ProjectDetails() {
   const userRole = userProfile?.role || 'crew'
   const isAdmin = userRole === 'admin'
 
-  // STATE
   const [activeTab, setActiveTab] = useState('overview')
   const [linkCopied, setLinkCopied] = useState(false)
   const [isEditing, setIsEditing] = useState(false)
   const [editForm, setEditForm] = useState({})
   const [unreadCount, setUnreadCount] = useState(0)
   const [newMsgToast, setNewMsgToast] = useState(null)
+  
   const [isSendingEstimate, setIsSendingEstimate] = useState(false)
+  const [isSendingFollowup, setIsSendingFollowup] = useState(false)
 
-  // EXPENSE STATE
   const [newExpense, setNewExpense] = useState({ description: '', amount: '' })
   const [isSubmittingExpense, setIsSubmittingExpense] = useState(false)
 
-  // 1. FETCH PROJECT
   const { data: project, isLoading, error } = useQuery({
     queryKey: ['project', id],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('projects')
-        .select('*, customer:customers(*)')
-        .eq('id', id)
-        .single()
+      const { data, error } = await supabase.from('projects').select('*, customer:customers(*)').eq('id', id).single()
       if (error) throw error
       return data
     }
   })
 
-  // 2. FETCH EXPENSES
   const { data: expenses } = useQuery({
     queryKey: ['project_expenses', id],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('project_expenses')
-        .select('*, profile:purchased_by(full_name)')
-        .eq('project_id', id)
-        .order('purchased_at', { ascending: false })
+      const { data, error } = await supabase.from('project_expenses').select('*, profile:purchased_by(full_name)').eq('project_id', id).order('purchased_at', { ascending: false })
       if (error) throw error
       return data
     }
   })
 
-  // 3. FETCH LABOR DATA (Logs + Wages + Burden)
   const { data: laborData } = useQuery({
     queryKey: ['project_labor', id],
     queryFn: async () => {
-      const { data: logs } = await supabase
-        .from('time_logs')
-        .select('clock_in_time, clock_out_time, profile:user_id(wage)')
-        .eq('project_id', id)
-        .not('clock_out_time', 'is', null) 
-      
-      const { data: settings } = await supabase
-        .from('app_settings')
-        .select('setting_value')
-        .eq('setting_key', 'payroll_config')
-        .single()
-      
-      return { 
-        logs: logs || [], 
-        burden: settings?.setting_value?.burden_multiplier || 1.18 
-      }
+      const { data: logs } = await supabase.from('time_logs').select('clock_in_time, clock_out_time, profile:user_id(wage)').eq('project_id', id).not('clock_out_time', 'is', null) 
+      const { data: settings } = await supabase.from('app_settings').select('setting_value').eq('setting_key', 'payroll_config').single()
+      return { logs: logs || [], burden: settings?.setting_value?.burden_multiplier || 1.18 }
     }
   })
 
-  // 4. FETCH CUSTOMERS (Edit Mode)
   const { data: customers } = useQuery({
     queryKey: ['customers_list'],
     queryFn: async () => {
@@ -102,25 +76,20 @@ export default function ProjectDetails() {
     enabled: isEditing 
   })
 
-  // --- CALCULATE TOTALS ---
   const totalExpenses = expenses?.reduce((sum, item) => sum + Number(item.amount), 0) || 0
-  
   const laborCost = laborData?.logs.reduce((total, log) => {
     if (!log.clock_out_time || !log.profile?.wage) return total
     const minutes = differenceInMinutes(parseISO(log.clock_out_time), parseISO(log.clock_in_time))
-    const hours = minutes / 60
-    const rawPay = hours * log.profile.wage
-    return total + (rawPay * laborData.burden)
+    return total + ((minutes / 60) * log.profile.wage * laborData.burden)
   }, 0) || 0
 
   const projectEstimate = Number(project?.estimate || 0)
   const netProfit = projectEstimate - totalExpenses - laborCost
 
-  // REAL-TIME LISTENER
   useEffect(() => {
     const channel = supabase
       .channel('realtime-project-logs')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'project_comments', filter: `project_id=eq.${id}` }, (payload) => {
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'project_comments', filter: `project_id=eq.${id}` }, () => {
           queryClient.invalidateQueries(['project_comments', id])
           queryClient.invalidateQueries(['project', id]) 
           if (activeTab !== 'comments') {
@@ -145,18 +114,11 @@ export default function ProjectDetails() {
     }
   }
 
-  // --- EDIT HANDLERS ---
   const handleEditStart = () => {
     setEditForm({
-      name: project.name,
-      status: project.status,
-      start_date: project.start_date,
-      end_date: project.end_date,
-      address: project.address || project.customer?.address || '',
-      city: project.city || '',
-      customer_id: project.customer_id || '',
-      estimate: project.estimate || 0,
-      scope_of_work: project.scope_of_work || '' 
+      name: project.name, status: project.status, start_date: project.start_date, end_date: project.end_date,
+      address: project.address || project.customer?.address || '', city: project.city || '',
+      customer_id: project.customer_id || '', estimate: project.estimate || 0, scope_of_work: project.scope_of_work || '' 
     })
     setIsEditing(true)
   }
@@ -164,15 +126,8 @@ export default function ProjectDetails() {
   const handleEditSave = async () => {
     try {
       const { error } = await supabase.from('projects').update({
-          name: editForm.name,
-          status: editForm.status,
-          start_date: editForm.start_date || null,
-          end_date: editForm.end_date || null,
-          address: editForm.address,
-          city: editForm.city,
-          customer_id: editForm.customer_id || null,
-          estimate: editForm.estimate,
-          scope_of_work: editForm.scope_of_work
+          name: editForm.name, status: editForm.status, start_date: editForm.start_date || null, end_date: editForm.end_date || null,
+          address: editForm.address, city: editForm.city, customer_id: editForm.customer_id || null, estimate: editForm.estimate, scope_of_work: editForm.scope_of_work
         }).eq('id', id)
 
       if (error) throw error
@@ -181,18 +136,12 @@ export default function ProjectDetails() {
     } catch (err) { alert("Error saving: " + err.message) }
   }
 
-  // --- EXPENSE HANDLERS ---
   const handleAddExpense = async (e) => {
     e.preventDefault()
     if(!newExpense.description || !newExpense.amount) return
     setIsSubmittingExpense(true)
     try {
-      const { error } = await supabase.from('project_expenses').insert({
-        project_id: id,
-        description: newExpense.description,
-        amount: newExpense.amount,
-        purchased_by: userProfile.id
-      })
+      const { error } = await supabase.from('project_expenses').insert({ project_id: id, description: newExpense.description, amount: newExpense.amount, purchased_by: userProfile.id })
       if(error) throw error
       setNewExpense({ description: '', amount: '' })
       queryClient.invalidateQueries(['project_expenses', id])
@@ -207,7 +156,6 @@ export default function ProjectDetails() {
     else queryClient.invalidateQueries(['project_expenses', id])
   }
 
-  // UTILS
   const getGoogleMapsUrl = () => {
     if (!project) return '#'
     const addr = project.address || project.customer?.address
@@ -254,11 +202,29 @@ export default function ProjectDetails() {
       })
       if (!res.ok) throw new Error("Failed to send")
       alert("Estimate sent successfully!")
-    } catch (err) {
-      alert(err.message)
-    } finally {
-      setIsSendingEstimate(false)
-    }
+    } catch (err) { alert(err.message) } 
+    finally { setIsSendingEstimate(false) }
+  }
+
+  // --- SEND FOLLOW UP EMAIL ---
+  const handleSendFollowupEmail = async () => {
+    if (!project.customer?.email) return alert("This customer doesn't have an email address on file!")
+    setIsSendingFollowup(true)
+    try {
+      const res = await fetch('https://pavingstone-chatbot.onrender.com/api/send-followup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          customerEmail: project.customer.email,
+          customerName: project.customer.name,
+          projectName: project.name,
+          portalLink: `${window.location.origin}/portal/${project.access_token}`
+        })
+      })
+      if (!res.ok) throw new Error("Failed to send")
+      alert("Follow up sent successfully!")
+    } catch (err) { alert(err.message) } 
+    finally { setIsSendingFollowup(false) }
   }
 
   if (isLoading) return <div className="p-10 text-center text-slate-500">Loading command center...</div>
@@ -267,7 +233,6 @@ export default function ProjectDetails() {
   return (
     <div className="max-w-5xl mx-auto pb-20 md:pb-12 bg-slate-50 min-h-screen flex flex-col relative">
       
-      {/* TOAST */}
       {newMsgToast && (
         <div className="fixed bottom-6 right-6 z-50 animate-in slide-in-from-bottom-5 duration-300">
           <div className="bg-slate-900 text-white px-6 py-4 rounded-xl shadow-2xl flex items-center gap-3 border border-slate-700">
@@ -281,7 +246,6 @@ export default function ProjectDetails() {
         </div>
       )}
 
-      {/* --- HEADER --- */}
       <div className="bg-white border-b border-slate-200 sticky top-0 z-20 shadow-sm">
         <div className="px-6 pt-6 pb-4">
           <button onClick={() => navigate('/projects')} className="flex items-center text-slate-400 hover:text-slate-800 mb-4 text-xs font-bold uppercase tracking-wider transition-colors">
@@ -291,7 +255,6 @@ export default function ProjectDetails() {
           <div className="flex flex-col md:flex-row justify-between items-start gap-4">
             <div className="flex-1 w-full">
               {isEditing ? (
-                // --- EDIT FORM ---
                 <div className="space-y-4 animate-in fade-in slide-in-from-top-2 bg-slate-50 p-4 rounded-lg border border-amber-200">
                    <input className="w-full text-xl md:text-2xl font-extrabold border-b-2 border-amber-500 focus:outline-none bg-transparent p-1"
                       value={editForm.name} onChange={e => setEditForm({...editForm, name: e.target.value})} placeholder="Project Name" />
@@ -299,8 +262,7 @@ export default function ProjectDetails() {
                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                      <div>
                        <label className="text-xs font-bold text-slate-400 uppercase block mb-1">Status</label>
-                       <select className="w-full p-2 border border-slate-300 rounded-lg font-bold text-sm bg-white"
-                          value={editForm.status} onChange={e => setEditForm({...editForm, status: e.target.value})}>
+                       <select className="w-full p-2 border border-slate-300 rounded-lg font-bold text-sm bg-white" value={editForm.status} onChange={e => setEditForm({...editForm, status: e.target.value})}>
                           <option value="New">New</option>
                           <option value="Scheduled">Scheduled</option>
                           <option value="In Progress">In Progress</option>
@@ -310,29 +272,21 @@ export default function ProjectDetails() {
                      </div>
                      <div>
                         <label className="text-xs font-bold text-slate-400 uppercase block mb-1">Assigned Customer</label>
-                        <select className="w-full p-2 border border-slate-300 rounded-lg font-bold text-sm bg-white"
-                          value={editForm.customer_id} onChange={e => setEditForm({...editForm, customer_id: e.target.value})}>
+                        <select className="w-full p-2 border border-slate-300 rounded-lg font-bold text-sm bg-white" value={editForm.customer_id} onChange={e => setEditForm({...editForm, customer_id: e.target.value})}>
                           <option value="">-- No Customer --</option>
                           {customers?.map(c => (<option key={c.id} value={c.id}>{c.name}</option>))}
                        </select>
                      </div>
                    </div>
 
-                   {/* FINANCIALS EDIT */}
                    <div className="bg-emerald-50 p-3 rounded border border-emerald-100">
                       <label className="text-xs font-bold text-emerald-700 uppercase block mb-1">Project Estimate ($)</label>
-                      <input type="number" className="w-full p-2 border border-emerald-200 rounded-lg bg-white font-mono font-bold" 
-                        value={editForm.estimate} onChange={e => setEditForm({...editForm, estimate: e.target.value})} />
+                      <input type="number" className="w-full p-2 border border-emerald-200 rounded-lg bg-white font-mono font-bold" value={editForm.estimate} onChange={e => setEditForm({...editForm, estimate: e.target.value})} />
                    </div>
 
-                   {/* SCOPE OF WORK TEXTAREA */}
                    <div>
                       <label className="text-xs font-bold text-slate-400 uppercase block mb-1">Scope of Work & Notes</label>
-                      <textarea 
-                        className="w-full p-3 border border-slate-300 rounded-lg bg-white min-h-[150px] font-mono text-sm" 
-                        value={editForm.scope_of_work} 
-                        onChange={e => setEditForm({...editForm, scope_of_work: e.target.value})} 
-                      />
+                      <textarea className="w-full p-3 border border-slate-300 rounded-lg bg-white min-h-[150px] font-mono text-sm" value={editForm.scope_of_work} onChange={e => setEditForm({...editForm, scope_of_work: e.target.value})} />
                    </div>
 
                    <div className="grid grid-cols-2 gap-4">
@@ -354,7 +308,6 @@ export default function ProjectDetails() {
                    </div>
                 </div>
               ) : (
-                // --- VIEW MODE ---
                 <>
                   <div className="flex justify-between items-start">
                     <h1 className="text-2xl md:text-3xl font-extrabold text-slate-900 leading-tight">{project.name}</h1>
@@ -402,25 +355,16 @@ export default function ProjectDetails() {
         )}
       </div>
 
-      {/* --- CONTENT AREA --- */}
       {!isEditing && (
         <div className="p-4 md:p-6 flex-1">
-          
-          {/* TAB: OVERVIEW */}
           {activeTab === 'overview' && (
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 animate-in fade-in slide-in-from-bottom-2">
               <div className="lg:col-span-2 space-y-6">
                 <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-5">
                   <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2"><ListChecks size={14} /> Scope of Work & Notes</h3>
-                  
                   {project.scope_of_work ? (
-                    <div className="text-slate-700 whitespace-pre-wrap text-sm font-mono bg-slate-50 p-4 rounded border border-slate-100">
-                      {project.scope_of_work}
-                    </div>
-                  ) : (
-                    <p className="text-slate-400 italic text-sm">No scope of work defined yet.</p>
-                  )}
-
+                    <div className="text-slate-700 whitespace-pre-wrap text-sm font-mono bg-slate-50 p-4 rounded border border-slate-100">{project.scope_of_work}</div>
+                  ) : <p className="text-slate-400 italic text-sm">No scope of work defined yet.</p>}
                   {(project.address || project.customer?.address) && (
                     <div className="mt-6 pt-6 border-t border-slate-100">
                       <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1">Site Address</p>
@@ -430,6 +374,7 @@ export default function ProjectDetails() {
                 </div>
                 <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-5"><ProjectFiles projectId={id} /></div>
               </div>
+              
               <div className="space-y-6">
                 <div className="bg-gradient-to-br from-amber-500 to-amber-600 rounded-xl shadow-lg p-5 text-white">
                   <h3 className="font-bold mb-2 flex items-center gap-2"><Navigation size={18} /> Client Portal</h3>
@@ -442,16 +387,22 @@ export default function ProjectDetails() {
                       {linkCopied ? <Check size={14} /> : <LinkIcon size={14} />}
                     </button>
                   </div>
-                  {/* NEW SEND BUTTON */}
-                  <button 
-                    onClick={handleSendEstimateEmail}
-                    disabled={isSendingEstimate}
-                    className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold py-2 rounded-lg flex items-center justify-center gap-2 transition-colors disabled:opacity-50"
-                  >
-                    {isSendingEstimate ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
-                    Email Estimate to Client
-                  </button>
+                  
+                  {/* EMAIL BUTTONS */}
+                  <div className="space-y-2">
+                    <button onClick={handleSendEstimateEmail} disabled={isSendingEstimate} className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold py-2 rounded-lg flex items-center justify-center gap-2 transition-colors disabled:opacity-50">
+                      {isSendingEstimate ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
+                      Email Estimate to Client
+                    </button>
+                    {project.status === 'New' && (
+                      <button onClick={handleSendFollowupEmail} disabled={isSendingFollowup} className="w-full bg-white/20 hover:bg-white/30 text-white font-bold py-2 rounded-lg flex items-center justify-center gap-2 transition-colors disabled:opacity-50">
+                        {isSendingFollowup ? <Loader2 size={16} className="animate-spin" /> : <MailQuestion size={16} />}
+                        Send Quick Follow-up
+                      </button>
+                    )}
+                  </div>
                 </div>
+
                 {can(userRole, PERMISSIONS.CAN_UPDATE_STATUS) && (
                   <div className="bg-slate-800 rounded-xl shadow-sm p-5 text-white">
                     <h3 className="font-bold mb-4 flex items-center gap-2 text-amber-400"><ShieldAlert size={18} /> Job Controls</h3>
@@ -467,11 +418,8 @@ export default function ProjectDetails() {
             </div>
           )}
 
-          {/* TAB: FINANCES */}
           {activeTab === 'finances' && (
             <div className="animate-in fade-in slide-in-from-bottom-2 space-y-6">
-              
-              {/* 1. ADMIN DASHBOARD (Hidden from Crew) */}
               {isAdmin && (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                   <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
@@ -482,36 +430,24 @@ export default function ProjectDetails() {
                     <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Expenses</p>
                     <p className="text-2xl font-black text-red-600">-${totalExpenses.toFixed(2)}</p>
                   </div>
-                  
-                  {/* Labor Cost Card */}
                   <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
                     <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Labor Cost</p>
                     <p className="text-2xl font-black text-orange-600">-${laborCost.toFixed(2)}</p>
                     <p className="text-[10px] text-slate-400 mt-1">Includes {((laborData?.burden || 1.18) - 1).toFixed(2) * 100}% Burden</p>
                   </div>
-
-                  {/* Net Profit Card */}
                   <div className={`p-5 rounded-xl border shadow-sm ${netProfit >= 0 ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
                     <p className={`text-xs font-bold uppercase tracking-widest ${netProfit >= 0 ? 'text-green-600' : 'text-red-600'}`}>Net Profit</p>
                     <p className={`text-2xl font-black ${netProfit >= 0 ? 'text-green-700' : 'text-red-700'}`}>${netProfit.toFixed(2)}</p>
                   </div>
                 </div>
               )}
-
-              {/* 2. EXPENSE LIST (Everyone Sees) */}
               <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
                 <h3 className="font-bold text-lg mb-4 flex items-center gap-2"><Receipt size={20} /> Expense Log</h3>
-                
-                {/* Add Expense Form */}
                 <form onSubmit={handleAddExpense} className="flex flex-col md:flex-row gap-3 mb-6 bg-slate-50 p-4 rounded-lg border border-slate-100">
                   <input className="flex-1 p-2 border rounded text-sm" placeholder="Item (e.g. Gas, Gravel)" value={newExpense.description} onChange={e => setNewExpense({...newExpense, description: e.target.value})} />
                   <input type="number" className="w-32 p-2 border rounded text-sm" placeholder="Cost ($)" value={newExpense.amount} onChange={e => setNewExpense({...newExpense, amount: e.target.value})} />
-                  <button disabled={isSubmittingExpense} className="bg-slate-900 text-white px-4 py-2 rounded font-bold text-sm flex items-center justify-center gap-1 hover:bg-slate-800">
-                    <Plus size={16} /> Add
-                  </button>
+                  <button disabled={isSubmittingExpense} className="bg-slate-900 text-white px-4 py-2 rounded font-bold text-sm flex items-center justify-center gap-1 hover:bg-slate-800"><Plus size={16} /> Add</button>
                 </form>
-
-                {/* List */}
                 <div className="space-y-3">
                   {expenses?.length === 0 && <p className="text-center text-slate-400 py-4 text-sm">No expenses logged yet.</p>}
                   {expenses?.map(ex => (
@@ -530,7 +466,6 @@ export default function ProjectDetails() {
               </div>
             </div>
           )}
-
           {activeTab === 'sops' && <div className="animate-in fade-in slide-in-from-bottom-2 bg-white rounded-xl shadow-sm border border-slate-200 p-1 md:p-6"><ProjectSOPs projectId={id} /></div>}
           {activeTab === 'materials' && <div className="animate-in fade-in slide-in-from-bottom-2 bg-white rounded-xl shadow-sm border border-slate-200 p-1 md:p-6"><ProjectMaterials projectId={id} /></div>}
           {activeTab === 'comments' && <div className="animate-in fade-in slide-in-from-bottom-2 bg-white rounded-xl shadow-sm border border-slate-200 p-4 md:p-6"><ProjectComments projectId={id} /></div>}
