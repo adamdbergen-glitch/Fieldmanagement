@@ -6,7 +6,7 @@ import {
   ArrowLeft, MapPin, Clock, Phone, Navigation, 
   ShieldAlert, ListChecks, Truck, Info, Calendar,
   MessageSquare, Link as LinkIcon, Check, Edit2, Save, X, 
-  DollarSign, Receipt, Plus, Trash2
+  DollarSign, Receipt, Plus, Trash2, Send
 } from 'lucide-react'
 import { format, parseISO, differenceInMinutes } from 'date-fns'
 import ProjectSOPs from '../components/ProjectSOPs'
@@ -34,6 +34,7 @@ export default function ProjectDetails() {
   const [editForm, setEditForm] = useState({})
   const [unreadCount, setUnreadCount] = useState(0)
   const [newMsgToast, setNewMsgToast] = useState(null)
+  const [isSendingEstimate, setIsSendingEstimate] = useState(false)
 
   // EXPENSE STATE
   const [newExpense, setNewExpense] = useState({ description: '', amount: '' })
@@ -235,6 +236,31 @@ export default function ProjectDetails() {
     else navigate('/projects')
   }
 
+  // --- SEND ESTIMATE EMAIL ---
+  const handleSendEstimateEmail = async () => {
+    if (!project.customer?.email) return alert("This customer doesn't have an email address on file!")
+    setIsSendingEstimate(true)
+    try {
+      const res = await fetch('https://pavingstone-chatbot.onrender.com/api/send-estimate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          customerEmail: project.customer.email,
+          customerName: project.customer.name,
+          projectName: project.name,
+          estimateAmount: project.estimate,
+          portalLink: `${window.location.origin}/portal/${project.access_token}`
+        })
+      })
+      if (!res.ok) throw new Error("Failed to send")
+      alert("Estimate sent successfully!")
+    } catch (err) {
+      alert(err.message)
+    } finally {
+      setIsSendingEstimate(false)
+    }
+  }
+
   if (isLoading) return <div className="p-10 text-center text-slate-500">Loading command center...</div>
   if (error) return <div className="p-10 text-red-500">Error: {error.message}</div>
 
@@ -408,7 +434,23 @@ export default function ProjectDetails() {
                 <div className="bg-gradient-to-br from-amber-500 to-amber-600 rounded-xl shadow-lg p-5 text-white">
                   <h3 className="font-bold mb-2 flex items-center gap-2"><Navigation size={18} /> Client Portal</h3>
                   <p className="text-amber-100 text-xs mb-4">Share this link with the client.</p>
-                  <div className="flex gap-2"><div className="flex-1 bg-black/10 rounded px-3 py-2 text-xs font-mono text-amber-100 truncate border border-white/10">{project.access_token ? `${window.location.origin}/portal/${project.access_token}` : "Generating..."}</div><button onClick={copyPortalLink} className="bg-white text-amber-600 px-3 py-2 rounded font-bold text-xs">{linkCopied ? <Check size={14} /> : <LinkIcon size={14} />}</button></div>
+                  <div className="flex gap-2 mb-4">
+                    <div className="flex-1 bg-black/10 rounded px-3 py-2 text-xs font-mono text-amber-100 truncate border border-white/10">
+                      {project.access_token ? `${window.location.origin}/portal/${project.access_token}` : "Generating..."}
+                    </div>
+                    <button onClick={copyPortalLink} className="bg-white text-amber-600 px-3 py-2 rounded font-bold text-xs">
+                      {linkCopied ? <Check size={14} /> : <LinkIcon size={14} />}
+                    </button>
+                  </div>
+                  {/* NEW SEND BUTTON */}
+                  <button 
+                    onClick={handleSendEstimateEmail}
+                    disabled={isSendingEstimate}
+                    className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold py-2 rounded-lg flex items-center justify-center gap-2 transition-colors disabled:opacity-50"
+                  >
+                    {isSendingEstimate ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
+                    Email Estimate to Client
+                  </button>
                 </div>
                 {can(userRole, PERMISSIONS.CAN_UPDATE_STATUS) && (
                   <div className="bg-slate-800 rounded-xl shadow-sm p-5 text-white">
