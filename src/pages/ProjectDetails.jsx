@@ -23,8 +23,9 @@ export default function ProjectDetails() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const { userProfile } = useAuth()
-  const userRole = userProfile?.role || 'crew'
-  const isAdmin = userRole === 'admin'
+  
+  // SECURITY: Check if user is an admin
+  const isAdmin = userProfile?.role === 'admin'
 
   const [activeTab, setActiveTab] = useState('overview')
   const [linkCopied, setLinkCopied] = useState(false)
@@ -39,7 +40,6 @@ export default function ProjectDetails() {
   const [newExpense, setNewExpense] = useState({ description: '', amount: '' })
   const [isSubmittingExpense, setIsSubmittingExpense] = useState(false)
 
-  // LINE ITEM STATE
   const [newLine, setNewLine] = useState({ title: '', description: '', price: '', is_change_order: false })
   const [isSubmittingLine, setIsSubmittingLine] = useState(false)
 
@@ -52,7 +52,6 @@ export default function ProjectDetails() {
     }
   })
 
-  // FETCH LINE ITEMS
   const { data: lineItems } = useQuery({
     queryKey: ['project_line_items', id],
     queryFn: async () => {
@@ -86,10 +85,9 @@ export default function ProjectDetails() {
       if (error) throw error
       return data
     },
-    enabled: isEditing 
+    enabled: isEditing && isAdmin
   })
 
-  // --- CALCULATIONS ---
   const calculatedEstimate = lineItems?.filter(i => i.status !== 'rejected').reduce((sum, item) => sum + Number(item.price), 0) || 0
 
   const totalExpenses = expenses?.reduce((sum, item) => sum + Number(item.amount), 0) || 0
@@ -230,7 +228,6 @@ export default function ProjectDetails() {
     else navigate('/projects')
   }
 
-  // --- FIXED: ADDED e.preventDefault() to prevent white screen ---
   const handleSendEstimateEmail = async (e) => {
     e?.preventDefault();
     if (!project.customer?.email) return alert("This customer doesn't have an email address on file!")
@@ -253,7 +250,6 @@ export default function ProjectDetails() {
     finally { setIsSendingEstimate(false) }
   }
 
-  // --- FIXED: ADDED e.preventDefault() to prevent white screen ---
   const handleSendFollowupEmail = async (e) => {
     e?.preventDefault();
     if (!project.customer?.email) return alert("This customer doesn't have an email address on file!")
@@ -302,7 +298,7 @@ export default function ProjectDetails() {
 
           <div className="flex flex-col md:flex-row justify-between items-start gap-4">
             <div className="flex-1 w-full">
-              {isEditing ? (
+              {isEditing && isAdmin ? (
                 <div className="space-y-4 animate-in fade-in slide-in-from-top-2 bg-slate-50 p-4 rounded-lg border border-amber-200">
                    <input className="w-full text-xl md:text-2xl font-extrabold border-b-2 border-amber-500 focus:outline-none bg-transparent p-1"
                       value={editForm.name} onChange={e => setEditForm({...editForm, name: e.target.value})} placeholder="Project Name" />
@@ -362,7 +358,7 @@ export default function ProjectDetails() {
                 <>
                   <div className="flex justify-between items-start">
                     <h1 className="text-2xl md:text-3xl font-extrabold text-slate-900 leading-tight">{project.name}</h1>
-                    {can(userRole, PERMISSIONS.CAN_DELETE_PROJECT) && (
+                    {isAdmin && (
                       <button onClick={handleEditStart} className="p-2 bg-slate-100 rounded-full text-slate-400 hover:text-amber-600 hover:bg-amber-50 transition-all ml-2"><Edit2 size={18} /></button>
                     )}
                   </div>
@@ -391,7 +387,9 @@ export default function ProjectDetails() {
             </div>
 
             <div className="px-4 md:px-6 flex space-x-6 overflow-x-auto no-scrollbar bg-white">
-              {['overview', 'finances', 'sops', 'materials', 'comments'].map(tab => (
+              {['overview', 'finances', 'sops', 'materials', 'comments']
+                .filter(tab => tab !== 'finances' || isAdmin) // SECURITY: Hide finances from crew
+                .map(tab => (
                 <button key={tab} onClick={() => handleTabClick(tab)} 
                   className={`pb-3 pt-3 text-sm font-bold border-b-2 whitespace-nowrap flex items-center gap-2 capitalize transition-colors ${activeTab === tab ? 'border-amber-500 text-amber-600' : 'border-transparent text-slate-400'}`}>
                   {tab === 'finances' ? <DollarSign size={18} /> : 
@@ -429,12 +427,17 @@ export default function ProjectDetails() {
                               {item.is_change_order && <span className="text-[10px] bg-purple-100 text-purple-700 px-2 py-0.5 rounded ml-2 uppercase font-bold tracking-wider">Change Order</span>}
                             </p>
                             <p className="text-xs text-slate-500 mt-1">{item.description}</p>
-                            <p className={`text-[10px] font-bold mt-2 uppercase tracking-wider ${item.status === 'approved' ? 'text-green-600' : item.status === 'rejected' ? 'text-red-500' : 'text-amber-500'}`}>
-                              Status: {item.status}
-                            </p>
+                            
+                            {isAdmin && (
+                              <p className={`text-[10px] font-bold mt-2 uppercase tracking-wider ${item.status === 'approved' ? 'text-green-600' : item.status === 'rejected' ? 'text-red-500' : 'text-amber-500'}`}>
+                                Status: {item.status}
+                              </p>
+                            )}
                           </div>
+                          
+                          {/* SECURITY: Crew only sees what to build, not the price */}
                           <div className="flex items-center gap-4">
-                            <span className="font-bold text-slate-900">${Number(item.price).toLocaleString()}</span>
+                            {isAdmin && <span className="font-bold text-slate-900">${Number(item.price).toLocaleString()}</span>}
                             {isAdmin && <button onClick={() => handleDeleteLineItem(item.id)} className="text-slate-300 hover:text-red-500"><Trash2 size={16}/></button>}
                           </div>
                        </div>
@@ -442,7 +445,7 @@ export default function ProjectDetails() {
                     {lineItems?.length === 0 && <p className="text-sm text-slate-400 italic text-center py-4">No line items added yet.</p>}
                   </div>
 
-                  {/* Add New Item Form */}
+                  {/* Add New Item Form (Admin Only) */}
                   {isAdmin && (
                     <form onSubmit={handleAddLineItem} className="flex flex-col gap-3 border-t border-slate-100 pt-4">
                        <div className="flex gap-2">
@@ -460,11 +463,13 @@ export default function ProjectDetails() {
                     </form>
                   )}
                   
-                  {/* Total Estimate */}
-                  <div className="mt-4 pt-4 border-t-2 border-slate-800 flex justify-between items-center">
-                     <span className="font-bold text-slate-800 uppercase tracking-widest text-xs">Total Active Estimate:</span>
-                     <span className="text-2xl font-black text-amber-500">${calculatedEstimate.toLocaleString()}</span>
-                  </div>
+                  {/* Total Estimate (Admin Only) */}
+                  {isAdmin && (
+                    <div className="mt-4 pt-4 border-t-2 border-slate-800 flex justify-between items-center">
+                       <span className="font-bold text-slate-800 uppercase tracking-widest text-xs">Total Active Estimate:</span>
+                       <span className="text-2xl font-black text-amber-500">${calculatedEstimate.toLocaleString()}</span>
+                    </div>
+                  )}
                 </div>
 
                 <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-5">
@@ -495,20 +500,21 @@ export default function ProjectDetails() {
                     </button>
                   </div>
                   
-                  {/* EMAIL BUTTONS */}
-                  <div className="space-y-2">
-                    {/* ADDED: type="button" to prevent form submissions throwing white screens */}
-                    <button type="button" onClick={handleSendEstimateEmail} disabled={isSendingEstimate || calculatedEstimate <= 0} className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold py-2 rounded-lg flex items-center justify-center gap-2 transition-colors disabled:opacity-50">
-                      {isSendingEstimate ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
-                      Email Estimate to Client
-                    </button>
-                    {project.status === 'New' && (
-                      <button type="button" onClick={handleSendFollowupEmail} disabled={isSendingFollowup} className="w-full bg-white/20 hover:bg-white/30 text-white font-bold py-2 rounded-lg flex items-center justify-center gap-2 transition-colors disabled:opacity-50">
-                        {isSendingFollowup ? <Loader2 size={16} className="animate-spin" /> : <MailQuestion size={16} />}
-                        Send Quick Follow-up
+                  {/* EMAIL BUTTONS (SECURITY: Admin Only) */}
+                  {isAdmin && (
+                    <div className="space-y-2">
+                      <button type="button" onClick={handleSendEstimateEmail} disabled={isSendingEstimate || calculatedEstimate <= 0} className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold py-2 rounded-lg flex items-center justify-center gap-2 transition-colors disabled:opacity-50">
+                        {isSendingEstimate ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
+                        Email Estimate to Client
                       </button>
-                    )}
-                  </div>
+                      {project.status === 'New' && (
+                        <button type="button" onClick={handleSendFollowupEmail} disabled={isSendingFollowup} className="w-full bg-white/20 hover:bg-white/30 text-white font-bold py-2 rounded-lg flex items-center justify-center gap-2 transition-colors disabled:opacity-50">
+                          {isSendingFollowup ? <Loader2 size={16} className="animate-spin" /> : <MailQuestion size={16} />}
+                          Send Quick Follow-up
+                        </button>
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 {can(userRole, PERMISSIONS.CAN_UPDATE_STATUS) && (
@@ -526,29 +532,27 @@ export default function ProjectDetails() {
             </div>
           )}
 
-          {activeTab === 'finances' && (
+          {activeTab === 'finances' && isAdmin && (
             <div className="animate-in fade-in slide-in-from-bottom-2 space-y-6">
-              {isAdmin && (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                  <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
-                    <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Active Estimate</p>
-                    <p className="text-2xl font-black text-slate-900">${calculatedEstimate.toLocaleString()}</p>
-                  </div>
-                  <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
-                    <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Expenses</p>
-                    <p className="text-2xl font-black text-red-600">-${totalExpenses.toFixed(2)}</p>
-                  </div>
-                  <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
-                    <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Labor Cost</p>
-                    <p className="text-2xl font-black text-orange-600">-${laborCost.toFixed(2)}</p>
-                    <p className="text-[10px] text-slate-400 mt-1">Includes {((laborData?.burden || 1.18) - 1).toFixed(2) * 100}% Burden</p>
-                  </div>
-                  <div className={`p-5 rounded-xl border shadow-sm ${netProfit >= 0 ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
-                    <p className={`text-xs font-bold uppercase tracking-widest ${netProfit >= 0 ? 'text-green-600' : 'text-red-600'}`}>Net Profit</p>
-                    <p className={`text-2xl font-black ${netProfit >= 0 ? 'text-green-700' : 'text-red-700'}`}>${netProfit.toFixed(2)}</p>
-                  </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
+                  <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Active Estimate</p>
+                  <p className="text-2xl font-black text-slate-900">${calculatedEstimate.toLocaleString()}</p>
                 </div>
-              )}
+                <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
+                  <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Expenses</p>
+                  <p className="text-2xl font-black text-red-600">-${totalExpenses.toFixed(2)}</p>
+                </div>
+                <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
+                  <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Labor Cost</p>
+                  <p className="text-2xl font-black text-orange-600">-${laborCost.toFixed(2)}</p>
+                  <p className="text-[10px] text-slate-400 mt-1">Includes {((laborData?.burden || 1.18) - 1).toFixed(2) * 100}% Burden</p>
+                </div>
+                <div className={`p-5 rounded-xl border shadow-sm ${netProfit >= 0 ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
+                  <p className={`text-xs font-bold uppercase tracking-widest ${netProfit >= 0 ? 'text-green-600' : 'text-red-600'}`}>Net Profit</p>
+                  <p className={`text-2xl font-black ${netProfit >= 0 ? 'text-green-700' : 'text-red-700'}`}>${netProfit.toFixed(2)}</p>
+                </div>
+              </div>
               <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
                 <h3 className="font-bold text-lg mb-4 flex items-center gap-2"><Receipt size={20} /> Expense Log</h3>
                 <form onSubmit={handleAddExpense} className="flex flex-col md:flex-row gap-3 mb-6 bg-slate-50 p-4 rounded-lg border border-slate-100">
