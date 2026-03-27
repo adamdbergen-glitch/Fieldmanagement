@@ -8,7 +8,7 @@ const MIN_JOB = 2500;
 
 // Cost for gravel, sand, edge restraints, and disposal per sq ft.
 // Fixed to $5.00 to account for A-base, bedding sand, and disposal costs in Winnipeg.
-const BASE_PREP_COST = 5.00; 
+const BASE_PREP_COST = 0.00; 
 
 const MATERIALS = {
   // Barkman – budget
