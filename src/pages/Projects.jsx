@@ -12,9 +12,9 @@ export default function Projects() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   
-  const [viewFilter, setViewFilter] = useState(
-    userProfile?.role === 'crew' ? 'mine' : 'all'
-  )
+  const isAdmin = userProfile?.role === 'admin'
+
+  const [viewFilter, setViewFilter] = useState(isAdmin ? 'all' : 'mine')
   const [viewMode, setViewMode] = useState('board') // 'grid' or 'board'
   const [searchTerm, setSearchTerm] = useState('')
 
@@ -28,7 +28,8 @@ export default function Projects() {
         .order('has_new_client_message', { ascending: false }) 
         .order('start_date', { ascending: true })
 
-      if (viewFilter === 'mine') {
+      // SECURITY: If they are NOT an admin, OR they selected "mine", force the crew filter
+      if (!isAdmin || viewFilter === 'mine') {
         query = supabase
           .from('projects')
           .select('*, customer:customers(*), project_crew!inner(employee_id)')
@@ -124,18 +125,20 @@ export default function Projects() {
             <button onClick={() => setViewMode('board')} className={`px-3 py-2 rounded text-sm transition-all ${viewMode === 'board' ? 'bg-slate-100 text-slate-900 font-bold' : 'text-slate-400 hover:text-slate-600'}`} title="Board View"><KanbanIcon size={18}/></button>
           </div>
 
-          {/* FILTER TOGGLE */}
-          <div className="bg-white p-1 rounded-lg border border-slate-200 flex shadow-sm">
-            <button onClick={() => setViewFilter('all')} className={`px-4 py-2 rounded-md text-sm font-bold transition-all flex items-center gap-2 ${viewFilter === 'all' ? 'bg-slate-800 text-white shadow-md' : 'text-slate-500 hover:text-slate-900'}`}><Briefcase size={16} /> All</button>
-            <button onClick={() => setViewFilter('mine')} className={`px-4 py-2 rounded-md text-sm font-bold transition-all flex items-center gap-2 ${viewFilter === 'mine' ? 'bg-amber-500 text-slate-900 shadow-md' : 'text-slate-500 hover:text-slate-900'}`}><UserCheck size={16} /> Mine</button>
-          </div>
+          {/* FILTER TOGGLE (Admin Only) */}
+          {isAdmin && (
+            <div className="bg-white p-1 rounded-lg border border-slate-200 flex shadow-sm">
+              <button onClick={() => setViewFilter('all')} className={`px-4 py-2 rounded-md text-sm font-bold transition-all flex items-center gap-2 ${viewFilter === 'all' ? 'bg-slate-800 text-white shadow-md' : 'text-slate-500 hover:text-slate-900'}`}><Briefcase size={16} /> All</button>
+              <button onClick={() => setViewFilter('mine')} className={`px-4 py-2 rounded-md text-sm font-bold transition-all flex items-center gap-2 ${viewFilter === 'mine' ? 'bg-amber-500 text-slate-900 shadow-md' : 'text-slate-500 hover:text-slate-900'}`}><UserCheck size={16} /> Mine</button>
+            </div>
+          )}
 
           <div className="relative flex-1 md:w-64">
             <Search className="absolute left-3 top-3 text-slate-400" size={18} />
             <input type="text" placeholder="Search..." className="w-full pl-10 pr-4 py-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-amber-500 outline-none shadow-sm" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
           </div>
 
-          {userProfile?.role === 'admin' && (
+          {isAdmin && (
             <Link to="/projects/new" className="bg-slate-900 hover:bg-slate-800 text-white font-bold px-4 py-2.5 rounded-lg flex items-center justify-center gap-2 shadow-sm transition-colors whitespace-nowrap"><Plus size={18} /> New Project</Link>
           )}
         </div>
@@ -181,7 +184,7 @@ export default function Projects() {
                           className={`flex-1 p-2 overflow-y-auto space-y-3 transition-colors ${snapshot.isDraggingOver ? 'bg-blue-50/50' : ''}`}
                         >
                           {colProjects.map((project, index) => (
-                            <Draggable key={project.id} draggableId={project.id} index={index} isDragDisabled={userProfile?.role === 'crew'}>
+                            <Draggable key={project.id} draggableId={project.id} index={index} isDragDisabled={!isAdmin}>
                               {(provided, snapshot) => (
                                 <div
                                   ref={provided.innerRef}
