@@ -90,7 +90,6 @@ export default function ProjectDetails() {
   })
 
   // --- CALCULATIONS ---
-  // The estimate is now the sum of all line items that are NOT rejected
   const calculatedEstimate = lineItems?.filter(i => i.status !== 'rejected').reduce((sum, item) => sum + Number(item.price), 0) || 0
 
   const totalExpenses = expenses?.reduce((sum, item) => sum + Number(item.amount), 0) || 0
@@ -154,7 +153,6 @@ export default function ProjectDetails() {
     } catch (err) { alert("Error saving: " + err.message) }
   }
 
-  // --- LINE ITEM HANDLERS ---
   const handleAddLineItem = async (e) => {
     e.preventDefault()
     if (!newLine.title || !newLine.price) return
@@ -184,7 +182,6 @@ export default function ProjectDetails() {
     queryClient.invalidateQueries(['project_line_items', id])
   }
 
-  // --- EXPENSE HANDLERS ---
   const handleAddExpense = async (e) => {
     e.preventDefault()
     if(!newExpense.description || !newExpense.amount) return
@@ -233,7 +230,9 @@ export default function ProjectDetails() {
     else navigate('/projects')
   }
 
-  const handleSendEstimateEmail = async () => {
+  // --- FIXED: ADDED e.preventDefault() to prevent white screen ---
+  const handleSendEstimateEmail = async (e) => {
+    e?.preventDefault();
     if (!project.customer?.email) return alert("This customer doesn't have an email address on file!")
     setIsSendingEstimate(true)
     try {
@@ -244,7 +243,7 @@ export default function ProjectDetails() {
           customerEmail: project.customer.email,
           customerName: project.customer.name,
           projectName: project.name,
-          estimateAmount: calculatedEstimate, // Send the calculated sum
+          estimateAmount: calculatedEstimate, 
           portalLink: `${window.location.origin}/portal/${project.access_token}`
         })
       })
@@ -254,7 +253,9 @@ export default function ProjectDetails() {
     finally { setIsSendingEstimate(false) }
   }
 
-  const handleSendFollowupEmail = async () => {
+  // --- FIXED: ADDED e.preventDefault() to prevent white screen ---
+  const handleSendFollowupEmail = async (e) => {
+    e?.preventDefault();
     if (!project.customer?.email) return alert("This customer doesn't have an email address on file!")
     setIsSendingFollowup(true)
     try {
@@ -496,12 +497,13 @@ export default function ProjectDetails() {
                   
                   {/* EMAIL BUTTONS */}
                   <div className="space-y-2">
-                    <button onClick={handleSendEstimateEmail} disabled={isSendingEstimate || calculatedEstimate <= 0} className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold py-2 rounded-lg flex items-center justify-center gap-2 transition-colors disabled:opacity-50">
+                    {/* ADDED: type="button" to prevent form submissions throwing white screens */}
+                    <button type="button" onClick={handleSendEstimateEmail} disabled={isSendingEstimate || calculatedEstimate <= 0} className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold py-2 rounded-lg flex items-center justify-center gap-2 transition-colors disabled:opacity-50">
                       {isSendingEstimate ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
                       Email Estimate to Client
                     </button>
                     {project.status === 'New' && (
-                      <button onClick={handleSendFollowupEmail} disabled={isSendingFollowup} className="w-full bg-white/20 hover:bg-white/30 text-white font-bold py-2 rounded-lg flex items-center justify-center gap-2 transition-colors disabled:opacity-50">
+                      <button type="button" onClick={handleSendFollowupEmail} disabled={isSendingFollowup} className="w-full bg-white/20 hover:bg-white/30 text-white font-bold py-2 rounded-lg flex items-center justify-center gap-2 transition-colors disabled:opacity-50">
                         {isSendingFollowup ? <Loader2 size={16} className="animate-spin" /> : <MailQuestion size={16} />}
                         Send Quick Follow-up
                       </button>
