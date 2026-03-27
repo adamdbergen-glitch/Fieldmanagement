@@ -6,7 +6,7 @@ import {
   ArrowLeft, MapPin, Clock, Phone, Navigation, 
   ShieldAlert, ListChecks, Truck, Info, Calendar,
   MessageSquare, Link as LinkIcon, Check, Edit2, Save, X, 
-  DollarSign, Receipt, Plus, Trash2, Send, MailQuestion
+  DollarSign, Receipt, Plus, Trash2, Send, MailQuestion, ListPlus
 } from 'lucide-react'
 import { format, parseISO, differenceInMinutes } from 'date-fns'
 import ProjectSOPs from '../components/ProjectSOPs'
@@ -39,12 +39,25 @@ export default function ProjectDetails() {
   const [newExpense, setNewExpense] = useState({ description: '', amount: '' })
   const [isSubmittingExpense, setIsSubmittingExpense] = useState(false)
 
+  // LINE ITEM STATE
+  const [newLine, setNewLine] = useState({ title: '', description: '', price: '', is_change_order: false })
+  const [isSubmittingLine, setIsSubmittingLine] = useState(false)
+
   const { data: project, isLoading, error } = useQuery({
     queryKey: ['project', id],
     queryFn: async () => {
       const { data, error } = await supabase.from('projects').select('*, customer:customers(*)').eq('id', id).single()
       if (error) throw error
       return data
+    }
+  })
+
+  // FETCH LINE ITEMS
+  const { data: lineItems } = useQuery({
+    queryKey: ['project_line_items', id],
+    queryFn: async () => {
+      const { data } = await supabase.from('project_line_items').select('*').eq('project_id', id).order('created_at')
+      return data || []
     }
   })
 
@@ -76,6 +89,10 @@ export default function ProjectDetails() {
     enabled: isEditing 
   })
 
+  // --- CALCULATIONS ---
+  // The estimate is now the sum of all line items that are NOT rejected
+  const calculatedEstimate = lineItems?.filter(i => i.status !== 'rejected').reduce((sum, item) => sum + Number(item.price), 0) || 0
+
   const totalExpenses = expenses?.reduce((sum, item) => sum + Number(item.amount), 0) || 0
   const laborCost = laborData?.logs.reduce((total, log) => {
     if (!log.clock_out_time || !log.profile?.wage) return total
@@ -83,8 +100,7 @@ export default function ProjectDetails() {
     return total + ((minutes / 60) * log.profile.wage * laborData.burden)
   }, 0) || 0
 
-  const projectEstimate = Number(project?.estimate || 0)
-  const netProfit = projectEstimate - totalExpenses - laborCost
+  const netProfit = calculatedEstimate - totalExpenses - laborCost
 
   useEffect(() => {
     const channel = supabase
@@ -117,9 +133,9 @@ export default function ProjectDetails() {
   const handleEditStart = () => {
     setEditForm({
       name: project.name, status: project.status, start_date: project.start_date, end_date: project.end_date,
-      duration_days: project.duration_days || 1, // <--- Added duration field
+      duration_days: project.duration_days || 1, 
       address: project.address || project.customer?.address || '', city: project.city || '',
-      customer_id: project.customer_id || '', estimate: project.estimate || 0, scope_of_work: project.scope_of_work || '' 
+      customer_id: project.customer_id || '', scope_of_work: project.scope_of_work || '' 
     })
     setIsEditing(true)
   }
@@ -128,8 +144,8 @@ export default function ProjectDetails() {
     try {
       const { error } = await supabase.from('projects').update({
           name: editForm.name, status: editForm.status, start_date: editForm.start_date || null, end_date: editForm.end_date || null,
-          duration_days: parseInt(editForm.duration_days) || 1, // <--- Saves the new duration
-          address: editForm.address, city: editForm.city, customer_id: editForm.customer_id || null, estimate: editForm.estimate, scope_of_work: editForm.scope_of_work
+          duration_days: parseInt(editForm.duration_days) || 1, 
+          address: editForm.address, city: editForm.city, customer_id: editForm.customer_id || null, scope_of_work: editForm.scope_of_work
         }).eq('id', id)
 
       if (error) throw error
@@ -138,6 +154,37 @@ export default function ProjectDetails() {
     } catch (err) { alert("Error saving: " + err.message) }
   }
 
+  // --- LINE ITEM HANDLERS ---
+  const handleAddLineItem = async (e) => {
+    e.preventDefault()
+    if (!newLine.title || !newLine.price) return
+    setIsSubmittingLine(true)
+    try {
+      const { error } = await supabase.from('project_line_items').insert({
+        project_id: id,
+        title: newLine.title,
+        description: newLine.description,
+        price: parseFloat(newLine.price),
+        is_change_order: newLine.is_change_order,
+        status: 'pending'
+      })
+      if (error) throw error
+      setNewLine({ title: '', description: '', price: '', is_change_order: false })
+      queryClient.invalidateQueries(['project_line_items', id])
+    } catch (err) {
+      alert("Error adding item: " + err.message)
+    } finally {
+      setIsSubmittingLine(false)
+    }
+  }
+
+  const handleDeleteLineItem = async (lineId) => {
+    if (!window.confirm("Delete this line item?")) return
+    await supabase.from('project_line_items').delete().eq('id', lineId)
+    queryClient.invalidateQueries(['project_line_items', id])
+  }
+
+  // --- EXPENSE HANDLERS ---
   const handleAddExpense = async (e) => {
     e.preventDefault()
     if(!newExpense.description || !newExpense.amount) return
@@ -197,7 +244,7 @@ export default function ProjectDetails() {
           customerEmail: project.customer.email,
           customerName: project.customer.name,
           projectName: project.name,
-          estimateAmount: project.estimate,
+          estimateAmount: calculatedEstimate, // Send the calculated sum
           portalLink: `${window.location.origin}/portal/${project.access_token}`
         })
       })
@@ -277,11 +324,6 @@ export default function ProjectDetails() {
                           {customers?.map(c => (<option key={c.id} value={c.id}>{c.name}</option>))}
                        </select>
                      </div>
-                   </div>
-
-                   <div className="bg-emerald-50 p-3 rounded border border-emerald-100">
-                      <label className="text-xs font-bold text-emerald-700 uppercase block mb-1">Project Estimate ($)</label>
-                      <input type="number" className="w-full p-2 border border-emerald-200 rounded-lg bg-white font-mono font-bold" value={editForm.estimate} onChange={e => setEditForm({...editForm, estimate: e.target.value})} />
                    </div>
 
                    <div>
@@ -369,6 +411,61 @@ export default function ProjectDetails() {
           {activeTab === 'overview' && (
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 animate-in fade-in slide-in-from-bottom-2">
               <div className="lg:col-span-2 space-y-6">
+                
+                {/* --- ITEM BUILDER (QUOTE/CHANGE ORDERS) --- */}
+                <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-5">
+                  <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2">
+                    <ListPlus size={14} /> Itemized Quote Builder
+                  </h3>
+
+                  {/* List Current Items */}
+                  <div className="space-y-3 mb-4">
+                    {lineItems?.map(item => (
+                       <div key={item.id} className={`flex justify-between items-start p-3 border rounded-lg ${item.status === 'rejected' ? 'bg-slate-100 border-slate-200 opacity-50' : 'bg-slate-50 border-slate-200'}`}>
+                          <div>
+                            <p className={`font-bold ${item.status === 'rejected' ? 'text-slate-500 line-through' : 'text-slate-800'}`}>
+                              {item.title} 
+                              {item.is_change_order && <span className="text-[10px] bg-purple-100 text-purple-700 px-2 py-0.5 rounded ml-2 uppercase font-bold tracking-wider">Change Order</span>}
+                            </p>
+                            <p className="text-xs text-slate-500 mt-1">{item.description}</p>
+                            <p className={`text-[10px] font-bold mt-2 uppercase tracking-wider ${item.status === 'approved' ? 'text-green-600' : item.status === 'rejected' ? 'text-red-500' : 'text-amber-500'}`}>
+                              Status: {item.status}
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-4">
+                            <span className="font-bold text-slate-900">${Number(item.price).toLocaleString()}</span>
+                            {isAdmin && <button onClick={() => handleDeleteLineItem(item.id)} className="text-slate-300 hover:text-red-500"><Trash2 size={16}/></button>}
+                          </div>
+                       </div>
+                    ))}
+                    {lineItems?.length === 0 && <p className="text-sm text-slate-400 italic text-center py-4">No line items added yet.</p>}
+                  </div>
+
+                  {/* Add New Item Form */}
+                  {isAdmin && (
+                    <form onSubmit={handleAddLineItem} className="flex flex-col gap-3 border-t border-slate-100 pt-4">
+                       <div className="flex gap-2">
+                         <input required placeholder="Item Title (e.g. 15x15 Patio)" className="flex-1 p-2 border border-slate-300 rounded focus:ring-2 focus:ring-amber-500 outline-none text-sm" value={newLine.title} onChange={e=>setNewLine({...newLine, title: e.target.value})} />
+                         <input required type="number" step="0.01" placeholder="Price ($)" className="w-32 p-2 border border-slate-300 rounded focus:ring-2 focus:ring-amber-500 outline-none text-sm" value={newLine.price} onChange={e=>setNewLine({...newLine, price: e.target.value})} />
+                       </div>
+                       <input placeholder="Description (Optional)" className="w-full p-2 border border-slate-300 rounded focus:ring-2 focus:ring-amber-500 outline-none text-sm" value={newLine.description} onChange={e=>setNewLine({...newLine, description: e.target.value})} />
+                       <label className="flex items-center gap-2 text-sm text-slate-600 font-bold mt-1 cursor-pointer w-fit">
+                         <input type="checkbox" checked={newLine.is_change_order} onChange={e=>setNewLine({...newLine, is_change_order: e.target.checked})} className="accent-amber-500 w-4 h-4 cursor-pointer" />
+                         This is a Mid-Project Change Order
+                       </label>
+                       <button disabled={isSubmittingLine} className="bg-slate-900 text-white font-bold py-2 rounded-lg mt-2 hover:bg-slate-800 disabled:opacity-50 transition-colors">
+                         Add Item to Quote
+                       </button>
+                    </form>
+                  )}
+                  
+                  {/* Total Estimate */}
+                  <div className="mt-4 pt-4 border-t-2 border-slate-800 flex justify-between items-center">
+                     <span className="font-bold text-slate-800 uppercase tracking-widest text-xs">Total Active Estimate:</span>
+                     <span className="text-2xl font-black text-amber-500">${calculatedEstimate.toLocaleString()}</span>
+                  </div>
+                </div>
+
                 <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-5">
                   <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2"><ListChecks size={14} /> Scope of Work & Notes</h3>
                   {project.scope_of_work ? (
@@ -399,7 +496,7 @@ export default function ProjectDetails() {
                   
                   {/* EMAIL BUTTONS */}
                   <div className="space-y-2">
-                    <button onClick={handleSendEstimateEmail} disabled={isSendingEstimate} className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold py-2 rounded-lg flex items-center justify-center gap-2 transition-colors disabled:opacity-50">
+                    <button onClick={handleSendEstimateEmail} disabled={isSendingEstimate || calculatedEstimate <= 0} className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold py-2 rounded-lg flex items-center justify-center gap-2 transition-colors disabled:opacity-50">
                       {isSendingEstimate ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
                       Email Estimate to Client
                     </button>
@@ -432,8 +529,8 @@ export default function ProjectDetails() {
               {isAdmin && (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                   <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
-                    <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Estimate</p>
-                    <p className="text-2xl font-black text-slate-900">${projectEstimate.toFixed(2)}</p>
+                    <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Active Estimate</p>
+                    <p className="text-2xl font-black text-slate-900">${calculatedEstimate.toLocaleString()}</p>
                   </div>
                   <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
                     <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Expenses</p>
