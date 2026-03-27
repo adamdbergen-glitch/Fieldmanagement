@@ -42,7 +42,10 @@ export default function InternalEstimator() {
     return { ...item, price: 0 }
   })
 
-  const grandTotal = evaluatedItems.reduce((sum, i) => sum + i.price, 0)
+  // GST Calculation Variables
+  const grandTotalSub = evaluatedItems.reduce((sum, i) => sum + i.price, 0)
+  const grandTotalGST = grandTotalSub * 0.05
+  const grandTotalWithTax = grandTotalSub + grandTotalGST
 
   const handleChat = async (e) => {
     e.preventDefault()
@@ -120,7 +123,7 @@ export default function InternalEstimator() {
       const { data: proj, error: pErr } = await supabase.from('projects').insert({
         name: `Lead: ${customerInfo.name}`,
         customer_id: newCust.id,
-        estimate: grandTotal,
+        estimate: grandTotalSub, // We save the Subtotal to the DB as standard practice
         status: 'New', 
         scope_of_work: scopeText
       }).select().single()
@@ -223,7 +226,6 @@ export default function InternalEstimator() {
         {evaluatedItems.length > 0 ? (
           <div className="space-y-4 flex-1 flex flex-col">
             
-            {/* Multi-Item List */}
             <div className="bg-slate-800 p-4 rounded-xl border border-slate-700">
               <h3 className="text-[10px] text-amber-500 font-bold uppercase mb-3 flex items-center gap-1"><ListPlus size={12}/> Line Items Found</h3>
               <div className="space-y-3 mb-4">
@@ -237,13 +239,22 @@ export default function InternalEstimator() {
                   </div>
                 ))}
               </div>
-              <div className="pt-3 border-t-2 border-slate-700 flex justify-between items-center">
-                <span className="text-xs font-bold text-slate-400 uppercase">Total Value</span>
-                <span className="text-xl font-black text-amber-400">${grandTotal.toLocaleString()}</span>
+              <div className="pt-3 border-t-2 border-slate-700">
+                 <div className="flex justify-between items-center mb-1">
+                   <span className="text-xs font-bold text-slate-400 uppercase">Subtotal</span>
+                   <span className="text-sm font-black text-white">${grandTotalSub.toLocaleString(undefined, {minimumFractionDigits: 2})}</span>
+                 </div>
+                 <div className="flex justify-between items-center mb-2">
+                   <span className="text-xs font-bold text-slate-400 uppercase">GST (5%)</span>
+                   <span className="text-sm font-black text-white">${grandTotalGST.toLocaleString(undefined, {minimumFractionDigits: 2})}</span>
+                 </div>
+                 <div className="flex justify-between items-center pt-2 border-t border-slate-600">
+                   <span className="text-xs font-bold text-slate-400 uppercase">Grand Total</span>
+                   <span className="text-xl font-black text-amber-400">${grandTotalWithTax.toLocaleString(undefined, {minimumFractionDigits: 2})}</span>
+                 </div>
               </div>
             </div>
 
-            {/* Customer Inputs */}
             <div className="space-y-2 mt-2">
               <input placeholder="Name *" className="w-full p-2 bg-slate-800 rounded border-slate-700 text-sm outline-none focus:ring-2 focus:ring-amber-500" value={customerInfo.name} onChange={e => setCustomerInfo({...customerInfo, name: e.target.value})} />
               <input placeholder="Phone" className="w-full p-2 bg-slate-800 rounded border-slate-700 text-sm outline-none focus:ring-2 focus:ring-amber-500" value={customerInfo.phone} onChange={e => setCustomerInfo({...customerInfo, phone: e.target.value})} />
