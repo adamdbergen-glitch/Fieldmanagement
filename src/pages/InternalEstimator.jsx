@@ -17,7 +17,6 @@ export default function InternalEstimator() {
   const [file, setFile] = useState(null)
   const [isTyping, setIsTyping] = useState(false)
   
-  // NEW: State for multiple line items
   const [extractedLineItems, setExtractedLineItems] = useState([])
   const [extractedMeta, setExtractedMeta] = useState(null)
   
@@ -30,7 +29,6 @@ export default function InternalEstimator() {
     return <div className="p-10 text-center font-bold text-slate-500">Admin Access Only</div>
   }
 
-  // --- NEW: Calculate Prices for EACH Line Item ---
   const evaluatedItems = extractedLineItems.map(item => {
     if (item.sqft > 0) {
       const est = calculatePavingEstimate({
@@ -44,7 +42,6 @@ export default function InternalEstimator() {
     return { ...item, price: 0 }
   })
 
-  // Calculate the sum of all items to show a grand total
   const grandTotal = evaluatedItems.reduce((sum, i) => sum + i.price, 0)
 
   const handleChat = async (e) => {
@@ -59,7 +56,6 @@ export default function InternalEstimator() {
     try {
       let attachmentPayload = null;
 
-      // 1. Upload File if present
       if (file) {
         const fileExt = file.name.split('.').pop()
         const fileName = `estimator/${Date.now()}.${fileExt}`
@@ -80,7 +76,6 @@ export default function InternalEstimator() {
         if(fileInputRef.current) fileInputRef.current.value = '';
       }
 
-      // 2. Ping the backend
       const res = await fetch('https://pavingstone-chatbot.onrender.com/api/internal-chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -93,7 +88,6 @@ export default function InternalEstimator() {
       
       setMessages(prev => [...prev, { role: 'assistant', content: data.reply }])
       
-      // 3. Save the new array of items and meta to state
       if (data.line_items) setExtractedLineItems(data.line_items)
       if (data.meta) setExtractedMeta(data.meta)
       if (data.customer) {
@@ -118,13 +112,11 @@ export default function InternalEstimator() {
     setIsSaving(true)
     
     try {
-      // 1. Create Customer
       const { data: newCust, error: cErr } = await supabase.from('customers').insert(customerInfo).select().single()
       if (cErr) throw cErr
 
       const scopeText = `Auto-extracted via AI Chat:\n${evaluatedItems.length} options/areas discussed.\n\n--- Project Summary ---\n${extractedMeta?.scope_summary || "No summary provided."}`
 
-      // 2. Create Project
       const { data: proj, error: pErr } = await supabase.from('projects').insert({
         name: `Lead: ${customerInfo.name}`,
         customer_id: newCust.id,
@@ -135,7 +127,6 @@ export default function InternalEstimator() {
 
       if (pErr) throw pErr
 
-      // 3. Create Line Items!
       const linesToInsert = evaluatedItems.map(item => ({
         project_id: proj.id,
         title: item.title || `${item.sqft} sqft ${item.project_type}`,
@@ -157,10 +148,11 @@ export default function InternalEstimator() {
   }
 
   return (
-    <div className="flex flex-col md:flex-row gap-6 h-[calc(100vh-140px)]">
+    <div className="flex flex-col md:flex-row gap-6 md:h-[calc(100vh-140px)]">
+      
       {/* CHAT PANEL */}
-      <div className="flex-1 bg-white rounded-2xl border border-slate-200 flex flex-col overflow-hidden relative">
-        <div className="p-4 bg-slate-50 border-b font-bold flex items-center gap-2">
+      <div className="h-[65vh] md:h-auto flex-1 bg-white rounded-2xl border border-slate-200 flex flex-col overflow-hidden relative shadow-sm">
+        <div className="p-4 bg-slate-50 border-b font-bold flex items-center gap-2 shrink-0">
           <Bot size={20} className="text-amber-500"/> Scoping Assistant
         </div>
         
@@ -183,7 +175,7 @@ export default function InternalEstimator() {
           <div ref={scrollRef} />
         </div>
 
-        <div className="p-4 border-t bg-white">
+        <div className="p-4 border-t bg-white shrink-0">
           {file && (
              <div className="flex items-center gap-2 mb-2 bg-slate-50 p-2 rounded-lg border border-slate-200 w-fit">
                 {file.type.includes('audio') || file.name.match(/\.(m4a|mp3|wav|ogg)$/i) ? <Mic size={14} className="text-blue-500"/> : <ImageIcon size={14} className="text-blue-500"/>}
@@ -197,7 +189,7 @@ export default function InternalEstimator() {
             <button 
               type="button"
               onClick={() => fileInputRef.current?.click()}
-              className="p-3 bg-slate-100 text-slate-500 hover:bg-slate-200 rounded-xl transition-colors border border-slate-200"
+              className="p-3 bg-slate-100 text-slate-500 hover:bg-slate-200 rounded-xl transition-colors border border-slate-200 shrink-0"
               title="Upload Audio or Sketch"
             >
               <Paperclip size={20} />
@@ -218,7 +210,7 @@ export default function InternalEstimator() {
               placeholder="Describe project or upload a file..." 
               disabled={isTyping}
             />
-            <button disabled={isTyping || (!input.trim() && !file)} className="p-3 bg-slate-900 text-white rounded-xl disabled:opacity-50 h-[48px]">
+            <button disabled={isTyping || (!input.trim() && !file)} className="p-3 bg-slate-900 text-white rounded-xl disabled:opacity-50 h-[48px] shrink-0">
               <Send size={20} />
             </button>
           </form>
@@ -226,12 +218,12 @@ export default function InternalEstimator() {
       </div>
 
       {/* SIDEBAR */}
-      <div className="w-80 bg-slate-900 rounded-2xl p-6 text-white flex flex-col overflow-y-auto">
+      <div className="w-full md:w-80 shrink-0 bg-slate-900 rounded-2xl p-6 text-white flex flex-col overflow-y-auto shadow-md mb-8 md:mb-0">
         <h2 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4">Extracted Quote</h2>
         {evaluatedItems.length > 0 ? (
           <div className="space-y-4 flex-1 flex flex-col">
             
-            {/* NEW: Multi-Item List */}
+            {/* Multi-Item List */}
             <div className="bg-slate-800 p-4 rounded-xl border border-slate-700">
               <h3 className="text-[10px] text-amber-500 font-bold uppercase mb-3 flex items-center gap-1"><ListPlus size={12}/> Line Items Found</h3>
               <div className="space-y-3 mb-4">
@@ -259,12 +251,12 @@ export default function InternalEstimator() {
               <input placeholder="Address" className="w-full p-2 bg-slate-800 rounded border-slate-700 text-sm outline-none focus:ring-2 focus:ring-amber-500" value={customerInfo.address} onChange={e => setCustomerInfo({...customerInfo, address: e.target.value})} />
             </div>
 
-            <button onClick={handleCreateLead} disabled={isSaving} className="w-full py-4 bg-white hover:bg-slate-200 text-slate-900 font-black rounded-xl mt-auto transition-colors shrink-0">
+            <button onClick={handleCreateLead} disabled={isSaving} className="w-full py-4 bg-white hover:bg-slate-200 text-slate-900 font-black rounded-xl mt-4 transition-colors shrink-0">
               {isSaving ? <Loader2 className="animate-spin mx-auto" /> : <span className="flex items-center justify-center gap-2"><UserPlus size={20} /> Create Lead & Items</span>}
             </button>
           </div>
         ) : (
-          <div className="flex-1 flex flex-col items-center justify-center opacity-20"><RefreshCw size={40} /></div>
+          <div className="flex-1 flex flex-col items-center justify-center opacity-20 min-h-[300px]"><RefreshCw size={40} /></div>
         )}
       </div>
     </div>
