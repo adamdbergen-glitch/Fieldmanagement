@@ -117,6 +117,7 @@ export default function ProjectDetails() {
   const handleEditStart = () => {
     setEditForm({
       name: project.name, status: project.status, start_date: project.start_date, end_date: project.end_date,
+      duration_days: project.duration_days || 1, // <--- Added duration field
       address: project.address || project.customer?.address || '', city: project.city || '',
       customer_id: project.customer_id || '', estimate: project.estimate || 0, scope_of_work: project.scope_of_work || '' 
     })
@@ -127,6 +128,7 @@ export default function ProjectDetails() {
     try {
       const { error } = await supabase.from('projects').update({
           name: editForm.name, status: editForm.status, start_date: editForm.start_date || null, end_date: editForm.end_date || null,
+          duration_days: parseInt(editForm.duration_days) || 1, // <--- Saves the new duration
           address: editForm.address, city: editForm.city, customer_id: editForm.customer_id || null, estimate: editForm.estimate, scope_of_work: editForm.scope_of_work
         }).eq('id', id)
 
@@ -184,7 +186,6 @@ export default function ProjectDetails() {
     else navigate('/projects')
   }
 
-  // --- SEND ESTIMATE EMAIL ---
   const handleSendEstimateEmail = async () => {
     if (!project.customer?.email) return alert("This customer doesn't have an email address on file!")
     setIsSendingEstimate(true)
@@ -206,7 +207,6 @@ export default function ProjectDetails() {
     finally { setIsSendingEstimate(false) }
   }
 
-  // --- SEND FOLLOW UP EMAIL ---
   const handleSendFollowupEmail = async () => {
     if (!project.customer?.email) return alert("This customer doesn't have an email address on file!")
     setIsSendingFollowup(true)
@@ -289,11 +289,19 @@ export default function ProjectDetails() {
                       <textarea className="w-full p-3 border border-slate-300 rounded-lg bg-white min-h-[150px] font-mono text-sm" value={editForm.scope_of_work} onChange={e => setEditForm({...editForm, scope_of_work: e.target.value})} />
                    </div>
 
-                   <div className="grid grid-cols-2 gap-4">
-                      <div><label className="text-xs font-bold text-slate-400 uppercase block mb-1">Start Date</label>
-                      <input type="date" className="w-full p-2 border border-slate-300 rounded-lg bg-white" value={editForm.start_date || ''} onChange={e => setEditForm({...editForm, start_date: e.target.value})} /></div>
-                      <div><label className="text-xs font-bold text-slate-400 uppercase block mb-1">End Date</label>
-                      <input type="date" className="w-full p-2 border border-slate-300 rounded-lg bg-white" value={editForm.end_date || ''} onChange={e => setEditForm({...editForm, end_date: e.target.value})} /></div>
+                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      <div>
+                        <label className="text-xs font-bold text-slate-400 uppercase block mb-1">Start Date</label>
+                        <input type="date" className="w-full p-2 border border-slate-300 rounded-lg bg-white" value={editForm.start_date || ''} onChange={e => setEditForm({...editForm, start_date: e.target.value})} />
+                      </div>
+                      <div>
+                        <label className="text-xs font-bold text-slate-400 uppercase block mb-1">End Date</label>
+                        <input type="date" className="w-full p-2 border border-slate-300 rounded-lg bg-white" value={editForm.end_date || ''} onChange={e => setEditForm({...editForm, end_date: e.target.value})} />
+                      </div>
+                      <div>
+                        <label className="text-xs font-bold text-slate-400 uppercase block mb-1">Duration (Days)</label>
+                        <input type="number" min="1" className="w-full p-2 border border-slate-300 rounded-lg bg-white" value={editForm.duration_days || 1} onChange={e => setEditForm({...editForm, duration_days: e.target.value})} />
+                      </div>
                    </div>
 
                    <div>
@@ -318,6 +326,7 @@ export default function ProjectDetails() {
                   <div className="flex flex-wrap items-center gap-3 mt-2 text-sm">
                     <span className={`px-2.5 py-0.5 rounded text-xs font-bold uppercase tracking-wide border ${project.status === 'Completed' ? 'bg-green-50 text-green-700 border-green-200' : 'bg-blue-50 text-blue-700 border-blue-200'}`}>{project.status}</span>
                     {project.start_date && (<span className="flex items-center gap-1 text-slate-500 font-medium text-xs"><Calendar size={14} /> {format(parseISO(project.start_date), 'MMM d')}</span>)}
+                    {project.duration_days && (<span className="flex items-center gap-1 text-slate-500 font-medium text-xs"><Clock size={14} /> {project.duration_days} Day{project.duration_days > 1 ? 's' : ''}</span>)}
                   </div>
                 </>
               )}
