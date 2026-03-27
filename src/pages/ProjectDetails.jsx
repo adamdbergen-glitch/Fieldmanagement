@@ -24,8 +24,9 @@ export default function ProjectDetails() {
   const queryClient = useQueryClient()
   const { userProfile } = useAuth()
   
-  // SECURITY: Check if user is an admin
-  const isAdmin = userProfile?.role === 'admin'
+  // FIX: Put userRole back so the permission checks at the bottom work!
+  const userRole = userProfile?.role || 'crew'
+  const isAdmin = userRole === 'admin'
 
   const [activeTab, setActiveTab] = useState('overview')
   const [linkCopied, setLinkCopied] = useState(false)
