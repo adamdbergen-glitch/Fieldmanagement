@@ -4,7 +4,7 @@ import { useQuery } from '@tanstack/react-query'
 import { supabase } from '../lib/supabase'
 import { 
   MapPin, Calendar, CheckCircle2, Circle, Clock, Loader2, 
-  Hammer, MessageSquare, Image as ImageIcon, Send, DollarSign, Sparkles, Phone, Mail, LayoutDashboard, FileSignature, X, AlertCircle
+  Hammer, MessageSquare, Image as ImageIcon, Send, DollarSign, Sparkles, Phone, Mail, LayoutDashboard, FileSignature, X
 } from 'lucide-react'
 import { format, parseISO, differenceInDays } from 'date-fns'
 import { addWorkDays, isWorkDay } from '../lib/dateUtils' 
@@ -61,15 +61,38 @@ export default function CustomerPortal() {
   
   const fileInputRef = useRef(null)
 
+  // 1. Fetch Project Data & Fix missing Customer Name
   const { data: project, isLoading, error } = useQuery({
     queryKey: ['portal_project', token],
     queryFn: async () => {
       const { data, error } = await supabase.rpc('get_project_by_token', { token_input: token })
       if (error) throw error
       if (!data || data.length === 0) return null
-      return data[0]
+      
+      let proj = data[0]
+      // Fix for "Prepared for undefined" if RPC missed the join
+      if (!proj.customer_name && proj.customer_id) {
+        const { data: custData } = await supabase.from('customers').select('name, email').eq('id', proj.customer_id).single()
+        if (custData) {
+          proj.customer_name = custData.name
+          proj.customer_email = custData.email
+        }
+      }
+      return proj
     }
   })
+
+  // 2. Fetch Project Images (if any)
+  const { data: files } = useQuery({
+    queryKey: ['portal_files', project?.id],
+    enabled: !!project?.id,
+    queryFn: async () => {
+      const { data } = await supabase.from('project_files').select('*').eq('project_id', project.id)
+      return data || []
+    }
+  })
+  const projectImages = files?.filter(f => f.file_type === 'image' || f.file_name.match(/\.(jpg|jpeg|png|gif)$/i)) || []
+
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -167,7 +190,7 @@ export default function CustomerPortal() {
           customerName: signatureName,
           customerEmail: clientEmail,
           projectName: project.name,
-          estimateAmount: project.estimate, // <--- Added estimate amount for QuickBooks!
+          estimateAmount: project.estimate, 
           adminLink: `${window.location.origin}/projects/${project.id}`,
           contractUrl: contractUrl,
           portalLink: window.location.href, // Send them back to this URL
@@ -219,6 +242,9 @@ export default function CustomerPortal() {
   // Is the project currently just an estimate?
   const isEstimatePhase = project.status === 'New'
 
+  // Customer Name display logic
+  const displayName = project.customer_name || "Valued Client";
+
   return (
     <div className="min-h-screen py-10 px-4 sm:px-6 relative overflow-hidden">
       <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full max-w-4xl h-[500px] bg-amber-400/10 blur-[100px] rounded-full pointer-events-none -z-10"></div>
@@ -267,16 +293,37 @@ export default function CustomerPortal() {
               project.status === 'Completed' ? 'text-green-600' : 
               project.status === 'In Progress' ? 'text-amber-500' : 'text-slate-800'
             }`}>
-              {isEstimatePhase ? `Prepared for ${project.customer_name}` : project.status}
+              {isEstimatePhase ? `Prepared for ${displayName}` : project.status}
             </h2>
             
-            <div>
+            <div className="relative z-10 w-full">
               <h3 className="text-2xl font-bold text-slate-900 mb-1">{project.name}</h3>
-              {project.scope_of_work && isEstimatePhase && (
-                 <p className="text-slate-500 mt-4 whitespace-pre-wrap text-left max-w-2xl mx-auto bg-white/50 p-4 rounded-xl border border-slate-100">{project.scope_of_work}</p>
-              )}
             </div>
           </div>
+
+          {/* NEW: Scope of Work Card (If in estimate phase) */}
+          {project.scope_of_work && isEstimatePhase && (
+            <div className="md:col-span-3 bg-white/70 backdrop-blur-2xl rounded-[2.5rem] shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-white/80 p-8 relative overflow-hidden group">
+              <h3 className="text-xl font-bold text-slate-900 mb-4 flex items-center gap-2"><LayoutDashboard size={20} className="text-amber-500"/> Scope of Work</h3>
+              <div className="text-slate-700 whitespace-pre-wrap leading-relaxed bg-white/50 p-6 rounded-2xl border border-slate-100 font-medium">
+                 {project.scope_of_work}
+              </div>
+            </div>
+          )}
+
+          {/* NEW: Project Photos Card (If images exist) */}
+          {projectImages.length > 0 && isEstimatePhase && (
+             <div className="md:col-span-3 bg-white/70 backdrop-blur-2xl rounded-[2.5rem] shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-white/80 p-8 relative overflow-hidden group">
+                <h3 className="text-xl font-bold text-slate-900 mb-6 flex items-center gap-2"><ImageIcon size={20} className="text-amber-500"/> Attached Photos & Plans</h3>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                  {projectImages.map(img => (
+                    <a key={img.id} href={img.file_url} target="_blank" rel="noreferrer" className="block aspect-square rounded-2xl overflow-hidden border border-slate-200 hover:shadow-lg transition-all hover:scale-[1.02]">
+                      <img src={img.file_url} alt={img.file_name} className="w-full h-full object-cover" />
+                    </a>
+                  ))}
+                </div>
+             </div>
+          )}
 
           {/* Bento Item 2: Estimate Card */}
           {Number(project.estimate) > 0 && (
