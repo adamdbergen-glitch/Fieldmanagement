@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
-import { Search, Phone, Mail, MapPin, Trash2, Plus, X, User } from 'lucide-react'
+import { Search, Phone, Mail, MapPin, Trash2, Plus, X, User, Edit2 } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import { can, PERMISSIONS } from '../lib/permissions'
 
@@ -9,10 +9,11 @@ export default function Customers() {
   const [customers, setCustomers] = useState([])
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState('')
-  const [showModal, setShowModal] = useState(false) // Controls the popup
+  const [showModal, setShowModal] = useState(false) 
 
-  // Form State for New Customer
-  const [newCustomer, setNewCustomer] = useState({ name: '', phone: '', email: '', address: '' })
+  // Form State
+  const [editingCustomer, setEditingCustomer] = useState(null)
+  const [customerForm, setCustomerForm] = useState({ name: '', phone: '', email: '', address: '' })
 
   useEffect(() => {
     fetchCustomers()
@@ -35,25 +36,57 @@ export default function Customers() {
     }
   }
 
-  // Handle Creating a New Customer
-  async function handleCreate(e) {
+  const openCreateModal = () => {
+    setEditingCustomer(null)
+    setCustomerForm({ name: '', phone: '', email: '', address: '' })
+    setShowModal(true)
+  }
+
+  const openEditModal = (customer) => {
+    setEditingCustomer(customer)
+    setCustomerForm({ 
+      name: customer.name, 
+      phone: customer.phone || '', 
+      email: customer.email || '', 
+      address: customer.address || '' 
+    })
+    setShowModal(true)
+  }
+
+  // Handle Create OR Update
+  async function handleSave(e) {
     e.preventDefault()
     
-    const { data, error } = await supabase
-      .from('customers')
-      .insert([newCustomer])
-      .select()
+    if (editingCustomer) {
+      // UPDATE EXISTING
+      const { data, error } = await supabase
+        .from('customers')
+        .update(customerForm)
+        .eq('id', editingCustomer.id)
+        .select()
 
-    if (error) {
-      alert('Error creating customer: ' + error.message)
+      if (error) {
+        alert('Error updating customer: ' + error.message)
+      } else {
+        setCustomers(customers.map(c => c.id === editingCustomer.id ? data[0] : c))
+        setShowModal(false)
+      }
     } else {
-      setCustomers([...customers, data[0]]) // Update UI instantly
-      setShowModal(false) // Close popup
-      setNewCustomer({ name: '', phone: '', email: '', address: '' }) // Reset form
+      // CREATE NEW
+      const { data, error } = await supabase
+        .from('customers')
+        .insert([customerForm])
+        .select()
+
+      if (error) {
+        alert('Error creating customer: ' + error.message)
+      } else {
+        setCustomers([...customers, data[0]]) 
+        setShowModal(false) 
+      }
     }
   }
 
-  // Handle Deleting a Customer
   async function handleDelete(id) {
     if (!window.confirm('Delete this customer? This will NOT delete their project history, but will remove them from this list.')) return
     
@@ -65,11 +98,10 @@ export default function Customers() {
     if (error) {
       alert('Error deleting: ' + error.message)
     } else {
-      setCustomers(customers.filter(c => c.id !== id)) // Update UI instantly
+      setCustomers(customers.filter(c => c.id !== id))
     }
   }
 
-  // Filter customers based on search term
   const filteredCustomers = customers.filter(c => 
     c.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
     c.phone?.includes(searchTerm) ||
@@ -100,10 +132,10 @@ export default function Customers() {
             />
           </div>
           
-          {/* ADD BUTTON (Admin/Foreman Only) */}
+          {/* ADD BUTTON */}
           {can(userProfile?.role, PERMISSIONS.CAN_MANAGE_CREW) && (
             <button 
-              onClick={() => setShowModal(true)} 
+              onClick={openCreateModal} 
               className="bg-amber-500 hover:bg-amber-600 text-slate-900 font-bold px-4 py-2 rounded-lg flex items-center justify-center gap-2 transition-colors shadow-sm"
             >
               <Plus size={20} /> Add Client
@@ -123,7 +155,7 @@ export default function Customers() {
             {searchTerm ? `No results for "${searchTerm}"` : "Get started by adding your first client."}
           </p>
           {!searchTerm && (
-             <button onClick={() => setShowModal(true)} className="text-amber-600 font-bold hover:underline">
+             <button onClick={openCreateModal} className="text-amber-600 font-bold hover:underline">
                Add New Client
              </button>
           )}
@@ -133,20 +165,29 @@ export default function Customers() {
           {filteredCustomers.map((customer) => (
             <div key={customer.id} className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm hover:shadow-md transition-shadow relative group">
               
-              {/* DELETE BUTTON (Admin Only) */}
+              {/* EDIT / DELETE CONTROLS (Admin Only) */}
               {can(userProfile?.role, PERMISSIONS.CAN_DELETE_PROJECT) && (
-                <button 
-                  onClick={() => handleDelete(customer.id)}
-                  className="absolute top-4 right-4 text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all p-1"
-                  title="Delete Customer"
-                >
-                  <Trash2 size={16} />
-                </button>
+                <div className="absolute top-4 right-4 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all bg-white shadow-sm border border-slate-100 rounded-md p-1 z-10">
+                  <button 
+                    onClick={() => openEditModal(customer)}
+                    className="text-slate-400 hover:text-blue-500 p-1.5 hover:bg-blue-50 rounded"
+                    title="Edit Customer"
+                  >
+                    <Edit2 size={14} />
+                  </button>
+                  <button 
+                    onClick={() => handleDelete(customer.id)}
+                    className="text-slate-400 hover:text-red-500 p-1.5 hover:bg-red-50 rounded"
+                    title="Delete Customer"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </div>
               )}
 
               <div className="flex items-start justify-between mb-4">
                 <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 bg-amber-100 rounded-full flex items-center justify-center text-amber-700 font-bold text-lg">
+                  <div className="w-10 h-10 bg-amber-100 rounded-full flex items-center justify-center text-amber-700 font-bold text-lg shrink-0">
                     {customer.name.charAt(0).toUpperCase()}
                   </div>
                   <div>
@@ -158,19 +199,19 @@ export default function Customers() {
               
               <div className="space-y-3 text-sm text-slate-600">
                 <div className="flex items-center gap-2">
-                  <Phone size={14} className="text-slate-400" />
+                  <Phone size={14} className="text-slate-400 shrink-0" />
                   <span>{customer.phone || 'No phone'}</span>
                 </div>
                 
                 <div className="flex items-center gap-2">
-                  <Mail size={14} className="text-slate-400" />
+                  <Mail size={14} className="text-slate-400 shrink-0" />
                   <span className="truncate">{customer.email || 'No email'}</span>
                 </div>
 
                 {customer.address && (
                   <div className="flex items-start gap-2">
-                    <MapPin size={14} className="text-slate-400 mt-0.5" />
-                    <span className="line-clamp-2">{customer.address}</span>
+                    <MapPin size={14} className="text-slate-400 shrink-0 mt-0.5" />
+                    <span className="line-clamp-2 leading-tight">{customer.address}</span>
                   </div>
                 )}
               </div>
@@ -180,27 +221,29 @@ export default function Customers() {
         </div>
       )}
 
-      {/* CREATE CUSTOMER POPUP MODAL */}
+      {/* CREATE / EDIT CUSTOMER POPUP MODAL */}
       {showModal && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-md overflow-hidden">
             
             <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
-              <h2 className="text-lg font-bold text-slate-800">Add New Customer</h2>
+              <h2 className="text-lg font-bold text-slate-800">
+                {editingCustomer ? 'Edit Customer Details' : 'Add New Customer'}
+              </h2>
               <button onClick={() => setShowModal(false)} className="text-slate-400 hover:text-slate-700 transition-colors">
                 <X size={20} />
               </button>
             </div>
             
-            <form onSubmit={handleCreate} className="p-6 space-y-4">
+            <form onSubmit={handleSave} className="p-6 space-y-4">
               <div>
                 <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Name *</label>
                 <input 
                   required 
                   className="w-full p-2 border border-slate-300 rounded focus:ring-2 focus:ring-amber-500 outline-none" 
                   placeholder="e.g. Jane Doe"
-                  value={newCustomer.name} 
-                  onChange={e => setNewCustomer({...newCustomer, name: e.target.value})} 
+                  value={customerForm.name} 
+                  onChange={e => setCustomerForm({...customerForm, name: e.target.value})} 
                 />
               </div>
               
@@ -210,8 +253,8 @@ export default function Customers() {
                   <input 
                     className="w-full p-2 border border-slate-300 rounded focus:ring-2 focus:ring-amber-500 outline-none" 
                     placeholder="204-555-0199"
-                    value={newCustomer.phone} 
-                    onChange={e => setNewCustomer({...newCustomer, phone: e.target.value})} 
+                    value={customerForm.phone} 
+                    onChange={e => setCustomerForm({...customerForm, phone: e.target.value})} 
                   />
                 </div>
                 <div>
@@ -220,8 +263,8 @@ export default function Customers() {
                     type="email"
                     className="w-full p-2 border border-slate-300 rounded focus:ring-2 focus:ring-amber-500 outline-none" 
                     placeholder="jane@example.com"
-                    value={newCustomer.email} 
-                    onChange={e => setNewCustomer({...newCustomer, email: e.target.value})} 
+                    value={customerForm.email} 
+                    onChange={e => setCustomerForm({...customerForm, email: e.target.value})} 
                   />
                 </div>
               </div>
@@ -231,8 +274,8 @@ export default function Customers() {
                 <input 
                   className="w-full p-2 border border-slate-300 rounded focus:ring-2 focus:ring-amber-500 outline-none" 
                   placeholder="123 Main St, Winnipeg"
-                  value={newCustomer.address} 
-                  onChange={e => setNewCustomer({...newCustomer, address: e.target.value})} 
+                  value={customerForm.address} 
+                  onChange={e => setCustomerForm({...customerForm, address: e.target.value})} 
                 />
               </div>
 
@@ -240,7 +283,7 @@ export default function Customers() {
                 type="submit" 
                 className="w-full bg-amber-500 hover:bg-amber-600 text-slate-900 font-bold py-3 rounded-lg mt-2 transition-colors"
               >
-                Save Customer
+                {editingCustomer ? 'Update Customer' : 'Save Customer'}
               </button>
             </form>
           </div>
