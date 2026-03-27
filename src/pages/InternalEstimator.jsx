@@ -4,7 +4,7 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { can } from '../lib/permissions'
 import { calculatePavingEstimate } from '../lib/pricing' 
-import { Send, Bot, UserPlus, Loader2, RefreshCw, Paperclip, X, Image as ImageIcon, Mic } from 'lucide-react'
+import { Send, Bot, UserPlus, Loader2, RefreshCw, Paperclip, X, Image as ImageIcon, Mic, ListPlus } from 'lucide-react'
 
 export default function InternalEstimator() {
   const navigate = useNavigate()
@@ -16,7 +16,11 @@ export default function InternalEstimator() {
   const [input, setInput] = useState('')
   const [file, setFile] = useState(null)
   const [isTyping, setIsTyping] = useState(false)
+  
+  // NEW: State for multiple line items
+  const [extractedLineItems, setExtractedLineItems] = useState([])
   const [extractedMeta, setExtractedMeta] = useState(null)
+  
   const [isSaving, setIsSaving] = useState(false)
   const [customerInfo, setCustomerInfo] = useState({ name: '', phone: '', email: '', address: '' })
 
@@ -26,12 +30,22 @@ export default function InternalEstimator() {
     return <div className="p-10 text-center font-bold text-slate-500">Admin Access Only</div>
   }
 
-  const currentEstimate = (extractedMeta && extractedMeta.sqft > 0) 
-    ? calculatePavingEstimate({
-        ...extractedMeta,
-        areas: [{ square_feet: Number(extractedMeta.sqft), is_backyard: !!extractedMeta.isBackyard }]
-      }) 
-    : null;
+  // --- NEW: Calculate Prices for EACH Line Item ---
+  const evaluatedItems = extractedLineItems.map(item => {
+    if (item.sqft > 0) {
+      const est = calculatePavingEstimate({
+          project_type: item.project_type,
+          areas: [{ square_feet: Number(item.sqft), is_backyard: !!item.is_backyard }],
+          access_level: extractedMeta?.access_level || "medium",
+          material_code: item.material_code
+      })
+      return { ...item, price: est.exact_price }
+    }
+    return { ...item, price: 0 }
+  })
+
+  // Calculate the sum of all items to show a grand total
+  const grandTotal = evaluatedItems.reduce((sum, i) => sum + i.price, 0)
 
   const handleChat = async (e) => {
     e.preventDefault()
@@ -45,7 +59,7 @@ export default function InternalEstimator() {
     try {
       let attachmentPayload = null;
 
-      // 1. If there's a file, upload it to Supabase first
+      // 1. Upload File if present
       if (file) {
         const fileExt = file.name.split('.').pop()
         const fileName = `estimator/${Date.now()}.${fileExt}`
@@ -55,7 +69,6 @@ export default function InternalEstimator() {
         
         const { data: urlData } = supabase.storage.from('portal-uploads').getPublicUrl(fileName)
         
-        // Determine if it's audio or image
         const isAudio = file.type.startsWith('audio') || file.type.startsWith('video') || file.name.match(/\.(m4a|mp3|wav|ogg)$/i);
         
         attachmentPayload = {
@@ -80,6 +93,8 @@ export default function InternalEstimator() {
       
       setMessages(prev => [...prev, { role: 'assistant', content: data.reply }])
       
+      // 3. Save the new array of items and meta to state
+      if (data.line_items) setExtractedLineItems(data.line_items)
       if (data.meta) setExtractedMeta(data.meta)
       if (data.customer) {
         setCustomerInfo(prev => ({
@@ -98,31 +113,41 @@ export default function InternalEstimator() {
   }
 
   const handleCreateLead = async () => {
-    if (!currentEstimate) return
+    if (evaluatedItems.length === 0) return alert("No items to quote!")
     if (!customerInfo.name.trim()) return alert("Enter a customer name.")
     setIsSaving(true)
     
     try {
+      // 1. Create Customer
       const { data: newCust, error: cErr } = await supabase.from('customers').insert(customerInfo).select().single()
       if (cErr) throw cErr
 
-      const scopeText = `Auto-extracted via AI Chat:
-Size: ${extractedMeta.sqft} sqft
-Type: ${extractedMeta.project_type}
-Material: ${extractedMeta.material_code}
+      const scopeText = `Auto-extracted via AI Chat:\n${evaluatedItems.length} options/areas discussed.\n\n--- Project Summary ---\n${extractedMeta?.scope_summary || "No summary provided."}`
 
---- Project Summary ---
-${extractedMeta.scope_summary || "No summary provided."}`
-
+      // 2. Create Project
       const { data: proj, error: pErr } = await supabase.from('projects').insert({
-        name: `Lead: ${extractedMeta.sqft} sqft ${extractedMeta.project_type}`,
+        name: `Lead: ${customerInfo.name}`,
         customer_id: newCust.id,
-        estimate: currentEstimate.exact_price,
-        status: 'New', // Standardized to "New" for consistency
+        estimate: grandTotal,
+        status: 'New', 
         scope_of_work: scopeText
       }).select().single()
 
       if (pErr) throw pErr
+
+      // 3. Create Line Items!
+      const linesToInsert = evaluatedItems.map(item => ({
+        project_id: proj.id,
+        title: item.title || `${item.sqft} sqft ${item.project_type}`,
+        description: `Size: ${item.sqft} sqft | Material: ${item.material_text || 'Standard'}`,
+        price: item.price,
+        status: 'pending',
+        is_change_order: false
+      }))
+
+      const { error: lErr } = await supabase.from('project_line_items').insert(linesToInsert)
+      if (lErr) throw lErr
+
       navigate(`/projects/${proj.id}`)
     } catch (err) {
       alert("Error saving: " + err.message)
@@ -142,7 +167,7 @@ ${extractedMeta.scope_summary || "No summary provided."}`
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
           {messages.map((m, i) => (
             <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-              <div className={`p-3 rounded-2xl max-w-[85%] ${m.role === 'user' ? 'bg-amber-500 font-medium' : 'bg-white border'}`}>
+              <div className={`p-3 rounded-2xl max-w-[85%] ${m.role === 'user' ? 'bg-amber-500 font-medium' : 'bg-white border whitespace-pre-wrap'}`}>
                 {m.content}
               </div>
             </div>
@@ -181,7 +206,7 @@ ${extractedMeta.scope_summary || "No summary provided."}`
               type="file" 
               ref={fileInputRef}
               className="hidden" 
-              accept="image/*,audio/*,video/mp4" // iPhones sometimes save voice memos as video/mp4 format
+              accept="image/*,audio/*,video/mp4" 
               onChange={(e) => {
                 if (e.target.files?.[0]) setFile(e.target.files[0])
               }}
@@ -201,23 +226,41 @@ ${extractedMeta.scope_summary || "No summary provided."}`
       </div>
 
       {/* SIDEBAR */}
-      <div className="w-80 bg-slate-900 rounded-2xl p-6 text-white flex flex-col">
-        <h2 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-6">Lead Variables</h2>
-        {currentEstimate ? (
-          <div className="space-y-6 flex-1 flex flex-col">
-            <div className="bg-amber-500/10 border border-amber-500/20 p-4 rounded-xl">
-              <p className="text-[10px] text-amber-500 font-bold uppercase">Internal Price</p>
-              <p className="text-3xl font-black text-amber-400">${currentEstimate.exact_price?.toLocaleString()}</p>
+      <div className="w-80 bg-slate-900 rounded-2xl p-6 text-white flex flex-col overflow-y-auto">
+        <h2 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4">Extracted Quote</h2>
+        {evaluatedItems.length > 0 ? (
+          <div className="space-y-4 flex-1 flex flex-col">
+            
+            {/* NEW: Multi-Item List */}
+            <div className="bg-slate-800 p-4 rounded-xl border border-slate-700">
+              <h3 className="text-[10px] text-amber-500 font-bold uppercase mb-3 flex items-center gap-1"><ListPlus size={12}/> Line Items Found</h3>
+              <div className="space-y-3 mb-4">
+                {evaluatedItems.map((item, idx) => (
+                  <div key={idx} className="flex justify-between items-center border-b border-slate-700 pb-2 last:border-0 last:pb-0">
+                    <div>
+                      <p className="font-bold text-sm text-slate-200">{item.title || item.project_type}</p>
+                      <p className="text-[10px] text-slate-400">{item.sqft} sqft • {item.material_text || 'Standard'}</p>
+                    </div>
+                    <div className="text-sm font-mono font-bold text-white">${item.price.toLocaleString()}</div>
+                  </div>
+                ))}
+              </div>
+              <div className="pt-3 border-t-2 border-slate-700 flex justify-between items-center">
+                <span className="text-xs font-bold text-slate-400 uppercase">Total Value</span>
+                <span className="text-xl font-black text-amber-400">${grandTotal.toLocaleString()}</span>
+              </div>
             </div>
+
             {/* Customer Inputs */}
-            <div className="space-y-2">
+            <div className="space-y-2 mt-2">
               <input placeholder="Name *" className="w-full p-2 bg-slate-800 rounded border-slate-700 text-sm outline-none focus:ring-2 focus:ring-amber-500" value={customerInfo.name} onChange={e => setCustomerInfo({...customerInfo, name: e.target.value})} />
               <input placeholder="Phone" className="w-full p-2 bg-slate-800 rounded border-slate-700 text-sm outline-none focus:ring-2 focus:ring-amber-500" value={customerInfo.phone} onChange={e => setCustomerInfo({...customerInfo, phone: e.target.value})} />
               <input placeholder="Email" className="w-full p-2 bg-slate-800 rounded border-slate-700 text-sm outline-none focus:ring-2 focus:ring-amber-500" value={customerInfo.email} onChange={e => setCustomerInfo({...customerInfo, email: e.target.value})} />
               <input placeholder="Address" className="w-full p-2 bg-slate-800 rounded border-slate-700 text-sm outline-none focus:ring-2 focus:ring-amber-500" value={customerInfo.address} onChange={e => setCustomerInfo({...customerInfo, address: e.target.value})} />
             </div>
-            <button onClick={handleCreateLead} disabled={isSaving} className="w-full py-4 bg-white hover:bg-slate-200 text-slate-900 font-black rounded-xl mt-auto transition-colors">
-              {isSaving ? <Loader2 className="animate-spin mx-auto" /> : <span className="flex items-center justify-center gap-2"><UserPlus size={20} /> Create Lead</span>}
+
+            <button onClick={handleCreateLead} disabled={isSaving} className="w-full py-4 bg-white hover:bg-slate-200 text-slate-900 font-black rounded-xl mt-auto transition-colors shrink-0">
+              {isSaving ? <Loader2 className="animate-spin mx-auto" /> : <span className="flex items-center justify-center gap-2"><UserPlus size={20} /> Create Lead & Items</span>}
             </button>
           </div>
         ) : (
