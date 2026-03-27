@@ -1,10 +1,10 @@
-import React, { useState, useRef } from 'react'
+import React, { useState, useRef, useEffect } from 'react'
 import { useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { supabase } from '../lib/supabase'
 import { 
   MapPin, Calendar, CheckCircle2, Circle, Clock, Loader2, 
-  Hammer, MessageSquare, Image as ImageIcon, Send, DollarSign, Sparkles, Phone, Mail, LayoutDashboard, FileSignature, X
+  Hammer, MessageSquare, Image as ImageIcon, Send, DollarSign, Sparkles, Phone, Mail, LayoutDashboard, FileSignature, X, ListPlus
 } from 'lucide-react'
 import { format, parseISO, differenceInDays } from 'date-fns'
 import { addWorkDays, isWorkDay } from '../lib/dateUtils' 
@@ -59,9 +59,12 @@ export default function CustomerPortal() {
   const [signatureName, setSignatureName] = useState('')
   const [isApproving, setIsApproving] = useState(false)
   
+  // NEW: Item Selection State
+  const [checkedItems, setCheckedItems] = useState({})
+
   const fileInputRef = useRef(null)
 
-  // 1. Fetch Project Data & Fix missing Customer Name
+  // 1. Fetch Project Data
   const { data: project, isLoading, error } = useQuery({
     queryKey: ['portal_project', token],
     queryFn: async () => {
@@ -70,7 +73,6 @@ export default function CustomerPortal() {
       if (!data || data.length === 0) return null
       
       let proj = data[0]
-      // Fix for "Prepared for undefined" if RPC missed the join
       if (!proj.customer_name && proj.customer_id) {
         const { data: custData } = await supabase.from('customers').select('name, email').eq('id', proj.customer_id).single()
         if (custData) {
@@ -82,7 +84,7 @@ export default function CustomerPortal() {
     }
   })
 
-  // 2. Fetch Project Images (if any)
+  // 2. Fetch Project Images
   const { data: files } = useQuery({
     queryKey: ['portal_files', project?.id],
     enabled: !!project?.id,
@@ -93,6 +95,35 @@ export default function CustomerPortal() {
   })
   const projectImages = files?.filter(f => f.file_type === 'image' || f.file_name.match(/\.(jpg|jpeg|png|gif)$/i)) || []
 
+  // 3. NEW: Fetch Line Items
+  const { data: lineItems } = useQuery({
+    queryKey: ['portal_line_items', project?.id],
+    enabled: !!project?.id,
+    queryFn: async () => {
+      const { data } = await supabase.from('project_line_items').select('*').eq('project_id', project.id).order('created_at')
+      return data || []
+    }
+  })
+
+  // Auto-check all items initially (unless they were explicitly rejected previously)
+  useEffect(() => {
+    if (lineItems && Object.keys(checkedItems).length === 0) {
+      const initial = {}
+      lineItems.forEach(item => {
+        initial[item.id] = item.status !== 'rejected'
+      })
+      setCheckedItems(initial)
+    }
+  }, [lineItems])
+
+  // NEW: Calculate the Dynamic Total
+  const dynamicTotal = lineItems?.reduce((sum, item) => {
+    return checkedItems[item.id] ? sum + Number(item.price) : sum
+  }, 0) || 0
+
+  const toggleItem = (id) => {
+    setCheckedItems(prev => ({ ...prev, [id]: !prev[id] }))
+  }
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -118,22 +149,21 @@ export default function CustomerPortal() {
   // HANDLE FORMAL APPROVAL (SIGNATURE)
   const handleApprove = async () => {
     if (!signatureName.trim()) return alert("Please type your full name to sign the contract.")
+    if (dynamicTotal <= 0) return alert("You must select at least one item to approve the contract.")
     setIsApproving(true)
     
     try {
       // 1. Generate text blob for the contract
-      const contractContent = `SIGNED CONTRACT\n\nProject: ${project.name}\nCustomer: ${signatureName}\nDate: ${new Date().toLocaleString()}\n\n${CONTRACT_TERMS}`;
+      const contractContent = `SIGNED CONTRACT\n\nProject: ${project.name}\nCustomer: ${signatureName}\nDate: ${new Date().toLocaleString()}\nApproved Total: $${dynamicTotal.toLocaleString()}\n\n${CONTRACT_TERMS}`;
       const blob = new Blob([contractContent], { type: 'text/plain' });
       const fileName = `${project.id}/Signed_Contract_${Date.now()}.txt`;
       
-      // 2. Upload to project-files bucket
       const { error: uploadError } = await supabase.storage.from('project-files').upload(fileName, blob);
       if (uploadError) throw uploadError;
 
       const { data: urlData } = supabase.storage.from('project-files').getPublicUrl(fileName);
       const contractUrl = urlData.publicUrl;
 
-      // 3. Save to project_files table so Adam sees it in the dashboard
       await supabase.from('project_files').insert({
         project_id: project.id,
         file_name: `Signed_Contract_${signatureName.replace(/\s+/g, '_')}.txt`,
@@ -141,9 +171,9 @@ export default function CustomerPortal() {
         file_type: 'document'
       });
 
-      // 4. AUTO-SCHEDULING LOGIC
+      // 2. AUTO-SCHEDULING LOGIC
       let newStartDate = new Date();
-      newStartDate.setDate(newStartDate.getDate() + 1); // Default to tomorrow
+      newStartDate.setDate(newStartDate.getDate() + 1); 
       
       const { data: lastProjects } = await supabase
         .from('projects')
@@ -157,32 +187,38 @@ export default function CustomerPortal() {
         const duration = lastProjects[0].duration_days || 1;
         newStartDate = addWorkDays(lastStart, duration);
       } else {
-        // Make sure it lands on a Mon-Thurs working day
         while (!isWorkDay(newStartDate)) {
           newStartDate.setDate(newStartDate.getDate() + 1);
         }
       }
 
-      // 5. Update status and start_date in Supabase 
+      // 3. UPDATE LINE ITEMS (Approved vs Rejected)
+      const updates = lineItems.map(item => {
+        return supabase.from('project_line_items').update({
+          status: checkedItems[item.id] ? 'approved' : 'rejected'
+        }).eq('id', item.id)
+      })
+      await Promise.all(updates)
+
+      // 4. Update status, start_date, AND NEW TOTAL in Supabase 
       const { error: statusError } = await supabase
         .from('projects')
         .update({ 
           status: 'Scheduled',
-          start_date: newStartDate.toISOString() 
+          start_date: newStartDate.toISOString(),
+          estimate: dynamicTotal // Save their custom total!
         }) 
         .eq('id', project.id)
       if (statusError) throw statusError
 
-      // 6. GET CUSTOMER EMAIL SAFELY
+      // 5. Send Emails
       let clientEmail = project.customer_email;
       if (!clientEmail && project.customer_id) {
         const { data: cData } = await supabase.from('customers').select('email').eq('id', project.customer_id).single();
         if (cData?.email) clientEmail = cData.email;
       }
-
       const formattedStartDate = format(newStartDate, 'MMMM do, yyyy');
 
-      // 7. Send Emails (Adam + Client Receipt + ZAPIER WEBHOOK)
       await fetch('https://pavingstone-chatbot.onrender.com/api/approve-estimate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -190,22 +226,22 @@ export default function CustomerPortal() {
           customerName: signatureName,
           customerEmail: clientEmail,
           projectName: project.name,
-          estimateAmount: project.estimate, 
+          estimateAmount: dynamicTotal, // Send the custom total to Quickbooks!
           adminLink: `${window.location.origin}/projects/${project.id}`,
           contractUrl: contractUrl,
-          portalLink: window.location.href, // Send them back to this URL
+          portalLink: window.location.href, 
           startDate: formattedStartDate
         })
       })
 
-      // 8. Automated Comment on Dashboard
+      // 6. Automated Comment
       await supabase.from('project_comments').insert({
         project_id: project.id,
-        content: `✅ The client (${signatureName}) has officially approved the estimate and signed the contract.\n🗓️ Auto-scheduled for: ${formattedStartDate}\n💰 The client has been reminded to send their $500 deposit.`,
+        content: `✅ The client (${signatureName}) has officially approved the estimate for $${dynamicTotal.toLocaleString()} and signed the contract.\n🗓️ Auto-scheduled for: ${formattedStartDate}\n💰 The client has been reminded to send their $500 deposit.`,
         is_from_client: true
       })
 
-      alert("Thank you! Your project has been approved and scheduled. Please remember to send your $500 deposit to adam@pavingstone.pro to secure your spot. A copy of the contract has been emailed to you.")
+      alert("Thank you! Your project has been approved and scheduled. Please remember to send your $500 deposit to adam@pavingstone.pro to secure your spot.")
       window.location.reload() 
     } catch (err) {
       alert("There was an issue approving the project: " + err.message)
@@ -238,11 +274,7 @@ export default function CustomerPortal() {
 
   const daysUntilStart = project.start_date ? differenceInDays(parseISO(project.start_date), new Date()) : 0
   const showCountdown = daysUntilStart > 0 && project.status === 'Scheduled'
-
-  // Is the project currently just an estimate?
   const isEstimatePhase = project.status === 'New'
-
-  // Customer Name display logic
   const displayName = project.customer_name || "Valued Client";
 
   return (
@@ -283,25 +315,22 @@ export default function CustomerPortal() {
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           
-          {/* Bento Item 1: Status/Title Card */}
+          {/* Status/Title Card */}
           <div className={`${isEstimatePhase ? 'md:col-span-3 text-center items-center' : 'md:col-span-2'} bg-white/70 backdrop-blur-2xl rounded-[2.5rem] shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-white/80 p-8 flex flex-col justify-center relative overflow-hidden group hover:shadow-[0_15px_40px_rgb(0,0,0,0.08)] transition-all duration-500`}>
             <div className="absolute -right-10 -top-10 w-40 h-40 bg-gradient-to-br from-amber-400/20 to-orange-500/20 rounded-full blur-3xl group-hover:scale-150 transition-transform duration-700"></div>
-            
             {!isEstimatePhase && <p className="text-xs font-bold uppercase tracking-widest text-slate-400 mb-2">Current Status</p>}
-            
             <h2 className={`${isEstimatePhase ? 'text-3xl' : 'text-4xl md:text-5xl'} font-black tracking-tight mb-6 ${
               project.status === 'Completed' ? 'text-green-600' : 
               project.status === 'In Progress' ? 'text-amber-500' : 'text-slate-800'
             }`}>
               {isEstimatePhase ? `Prepared for ${displayName}` : project.status}
             </h2>
-            
             <div className="relative z-10 w-full">
               <h3 className="text-2xl font-bold text-slate-900 mb-1">{project.name}</h3>
             </div>
           </div>
 
-          {/* NEW: Scope of Work Card (If in estimate phase) */}
+          {/* Scope of Work */}
           {project.scope_of_work && isEstimatePhase && (
             <div className="md:col-span-3 bg-white/70 backdrop-blur-2xl rounded-[2.5rem] shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-white/80 p-8 relative overflow-hidden group">
               <h3 className="text-xl font-bold text-slate-900 mb-4 flex items-center gap-2"><LayoutDashboard size={20} className="text-amber-500"/> Scope of Work</h3>
@@ -311,7 +340,7 @@ export default function CustomerPortal() {
             </div>
           )}
 
-          {/* NEW: Project Photos Card (If images exist) */}
+          {/* Project Photos */}
           {projectImages.length > 0 && isEstimatePhase && (
              <div className="md:col-span-3 bg-white/70 backdrop-blur-2xl rounded-[2.5rem] shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-white/80 p-8 relative overflow-hidden group">
                 <h3 className="text-xl font-bold text-slate-900 mb-6 flex items-center gap-2"><ImageIcon size={20} className="text-amber-500"/> Attached Photos & Plans</h3>
@@ -325,39 +354,95 @@ export default function CustomerPortal() {
              </div>
           )}
 
-          {/* Bento Item 2: Estimate Card */}
-          {Number(project.estimate) > 0 && (
-            <div className={`${isEstimatePhase ? 'md:col-span-3 items-center text-center' : ''} bg-slate-900/90 backdrop-blur-2xl rounded-[2.5rem] shadow-[0_20px_40px_rgba(0,0,0,0.15)] border border-slate-700/50 p-8 text-white flex flex-col justify-between relative overflow-hidden group hover:-translate-y-1 transition-all duration-500`}>
+          {/* NEW: ITEMIZED ESTIMATE CARD */}
+          {(lineItems?.length > 0 || Number(project.estimate) > 0) && (
+            <div className={`${isEstimatePhase ? 'md:col-span-3' : ''} bg-slate-900/95 backdrop-blur-2xl rounded-[2.5rem] shadow-[0_20px_40px_rgba(0,0,0,0.15)] border border-slate-700/50 p-8 lg:p-10 text-white flex flex-col justify-between relative overflow-hidden transition-all duration-500`}>
               <div className="absolute inset-0 bg-gradient-to-b from-white/5 to-transparent opacity-50 pointer-events-none"></div>
               
-              <div className={`flex items-center gap-3 mb-6 relative z-10 ${isEstimatePhase ? 'justify-center' : ''}`}>
+              <div className="flex items-center gap-3 mb-8 relative z-10">
                 <div className="w-12 h-12 rounded-2xl bg-white/10 backdrop-blur-md border border-white/10 flex items-center justify-center shrink-0 shadow-inner">
-                    <DollarSign size={24} className="text-green-400" />
+                    <ListPlus size={24} className="text-green-400" />
                 </div>
-                <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Est. Cost</p>
+                <div>
+                  <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Project Investment</p>
+                  {isEstimatePhase && <p className="text-sm text-slate-300 font-medium">Select the options you'd like to include.</p>}
+                </div>
               </div>
               
-              <div className="relative z-10 w-full">
-                <div className="text-4xl lg:text-5xl font-black tracking-tighter text-white mb-6">
-                   ${Number(project.estimate).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}
-                </div>
+              <div className="relative z-10 w-full flex-1 flex flex-col">
                 
-                {isEstimatePhase && (
-                  <div className="max-w-md mx-auto">
-                    <button 
-                      onClick={() => setShowContractModal(true)}
-                      className="w-full bg-green-500 hover:bg-green-400 text-slate-900 font-bold py-4 px-6 rounded-xl transition-all shadow-[0_10px_20px_rgba(34,197,94,0.2)] flex items-center justify-center gap-2 text-lg hover:-translate-y-1"
-                    >
-                      <FileSignature size={22} />
-                      Review & Approve Contract
-                    </button>
+                {/* The Interactive List */}
+                {lineItems?.length > 0 ? (
+                  <div className="space-y-3 mb-8 flex-1">
+                    {lineItems.map(item => (
+                      <label 
+                        key={item.id} 
+                        className={`flex justify-between items-center p-4 rounded-xl border transition-all cursor-pointer select-none
+                          ${checkedItems[item.id] ? 'bg-white/10 border-green-500/50 shadow-[0_0_15px_rgba(34,197,94,0.1)]' : 'bg-black/20 border-white/10 opacity-70 hover:opacity-100'}
+                          ${!isEstimatePhase ? 'cursor-default pointer-events-none' : ''}
+                        `}
+                      >
+                        <div className="flex items-center gap-4">
+                          {isEstimatePhase && (
+                            <div className={`w-6 h-6 rounded border flex items-center justify-center shrink-0 transition-colors
+                              ${checkedItems[item.id] ? 'bg-green-500 border-green-500' : 'border-slate-500 bg-transparent'}
+                            `}>
+                              {checkedItems[item.id] && <CheckCircle2 size={16} className="text-white" />}
+                            </div>
+                          )}
+                          <div>
+                            <p className={`font-bold text-lg ${checkedItems[item.id] ? 'text-white' : 'text-slate-300'}`}>
+                              {item.title}
+                              {item.is_change_order && <span className="ml-2 text-[10px] bg-purple-500/20 text-purple-300 border border-purple-500/30 px-2 py-0.5 rounded tracking-wider uppercase">Change Order</span>}
+                            </p>
+                            <p className="text-sm text-slate-400 mt-1">{item.description}</p>
+                          </div>
+                        </div>
+                        <div className={`text-xl font-mono font-bold ${checkedItems[item.id] ? 'text-green-400' : 'text-slate-500'}`}>
+                          ${Number(item.price).toLocaleString()}
+                        </div>
+                      </label>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-center py-10 border border-dashed border-white/10 rounded-xl mb-8 bg-black/20">
+                    <p className="text-4xl lg:text-5xl font-black tracking-tighter text-white mb-2">
+                       ${Number(project.estimate).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}
+                    </p>
+                    <p className="text-slate-400">Flat Rate Estimate</p>
                   </div>
                 )}
+                
+                {/* Grand Total & Approve Button */}
+                <div className="mt-auto pt-6 border-t border-white/10">
+                  {lineItems?.length > 0 && (
+                    <div className="flex justify-between items-end mb-6">
+                      <span className="text-slate-400 font-bold uppercase tracking-widest text-sm">Approved Total</span>
+                      <span className="text-4xl lg:text-5xl font-black text-white tracking-tighter">
+                        ${dynamicTotal.toLocaleString()}
+                      </span>
+                    </div>
+                  )}
+
+                  {isEstimatePhase && (
+                    <div className="max-w-md mx-auto w-full">
+                      <button 
+                        onClick={() => setShowContractModal(true)}
+                        disabled={dynamicTotal <= 0 && lineItems?.length > 0}
+                        className="w-full bg-green-500 hover:bg-green-400 text-slate-900 font-bold py-4 px-6 rounded-xl transition-all shadow-[0_10px_20px_rgba(34,197,94,0.2)] flex items-center justify-center gap-2 text-lg hover:-translate-y-1 disabled:opacity-50 disabled:hover:translate-y-0 disabled:cursor-not-allowed"
+                      >
+                        <FileSignature size={22} />
+                        Review & Approve Contract
+                      </button>
+                    </div>
+                  )}
+                </div>
+
               </div>
             </div>
           )}
 
-          {/* ONLY SHOW IF APPROVED (Scheduled, In Progress, Completed) */}
+          {/* ONLY SHOW IF APPROVED */}
           {!isEstimatePhase && (
             <>
               {/* Timeline & Location */}
@@ -500,8 +585,14 @@ export default function CustomerPortal() {
                 </div>
               </div>
 
-              <label className="block text-sm font-bold text-slate-800 mb-2">9. CUSTOMER AUTHORIZATION</label>
-              <p className="text-xs text-slate-500 mb-4">By typing your full name below, you authorize The Paving Stone Pros to commence the agreed-upon project under the Terms & Conditions outlined above.</p>
+              <div className="flex items-center justify-between mb-4">
+                <label className="block text-sm font-bold text-slate-800">9. CUSTOMER AUTHORIZATION</label>
+                <div className="text-right">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block">Approved Total</span>
+                  <span className="text-xl font-black text-green-600">${dynamicTotal.toLocaleString()}</span>
+                </div>
+              </div>
+              <p className="text-xs text-slate-500 mb-4">By typing your full name below, you authorize The Paving Stone Pros to commence the agreed-upon project and confirm you have selected the items totaling ${dynamicTotal.toLocaleString()}.</p>
               
               <div className="flex flex-col sm:flex-row gap-4">
                 <input 
