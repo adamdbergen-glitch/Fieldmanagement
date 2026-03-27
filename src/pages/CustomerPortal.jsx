@@ -54,17 +54,13 @@ export default function CustomerPortal() {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [feedbackSent, setFeedbackSent] = useState(false)
   
-  // Contract State
   const [showContractModal, setShowContractModal] = useState(false)
   const [signatureName, setSignatureName] = useState('')
   const [isApproving, setIsApproving] = useState(false)
   
-  // NEW: Item Selection State
   const [checkedItems, setCheckedItems] = useState({})
-
   const fileInputRef = useRef(null)
 
-  // 1. Fetch Project Data
   const { data: project, isLoading, error } = useQuery({
     queryKey: ['portal_project', token],
     queryFn: async () => {
@@ -84,7 +80,6 @@ export default function CustomerPortal() {
     }
   })
 
-  // 2. Fetch Project Images
   const { data: files } = useQuery({
     queryKey: ['portal_files', project?.id],
     enabled: !!project?.id,
@@ -95,7 +90,6 @@ export default function CustomerPortal() {
   })
   const projectImages = files?.filter(f => f.file_type === 'image' || f.file_name.match(/\.(jpg|jpeg|png|gif)$/i)) || []
 
-  // 3. NEW: Fetch Line Items
   const { data: lineItems } = useQuery({
     queryKey: ['portal_line_items', project?.id],
     enabled: !!project?.id,
@@ -105,7 +99,6 @@ export default function CustomerPortal() {
     }
   })
 
-  // Auto-check all items initially (unless they were explicitly rejected previously)
   useEffect(() => {
     if (lineItems && Object.keys(checkedItems).length === 0) {
       const initial = {}
@@ -116,10 +109,12 @@ export default function CustomerPortal() {
     }
   }, [lineItems])
 
-  // NEW: Calculate the Dynamic Total
-  const dynamicTotal = lineItems?.reduce((sum, item) => {
+  // --- NEW: CALCULATION BREAKDOWN WITH GST ---
+  const dynamicSubtotal = lineItems?.reduce((sum, item) => {
     return checkedItems[item.id] ? sum + Number(item.price) : sum
   }, 0) || 0
+  const dynamicGST = dynamicSubtotal * 0.05
+  const dynamicTotal = dynamicSubtotal + dynamicGST
 
   const toggleItem = (id) => {
     setCheckedItems(prev => ({ ...prev, [id]: !prev[id] }))
@@ -146,15 +141,13 @@ export default function CustomerPortal() {
     finally { setIsSubmitting(false) }
   }
 
-  // HANDLE FORMAL APPROVAL (SIGNATURE)
   const handleApprove = async () => {
     if (!signatureName.trim()) return alert("Please type your full name to sign the contract.")
-    if (dynamicTotal <= 0) return alert("You must select at least one item to approve the contract.")
+    if (dynamicSubtotal <= 0) return alert("You must select at least one item to approve the contract.")
     setIsApproving(true)
     
     try {
-      // 1. Generate text blob for the contract
-      const contractContent = `SIGNED CONTRACT\n\nProject: ${project.name}\nCustomer: ${signatureName}\nDate: ${new Date().toLocaleString()}\nApproved Total: $${dynamicTotal.toLocaleString()}\n\n${CONTRACT_TERMS}`;
+      const contractContent = `SIGNED CONTRACT\n\nProject: ${project.name}\nCustomer: ${signatureName}\nDate: ${new Date().toLocaleString()}\n\nApproved Subtotal: $${dynamicSubtotal.toLocaleString(undefined, {minimumFractionDigits: 2})}\nGST (5%): $${dynamicGST.toLocaleString(undefined, {minimumFractionDigits: 2})}\nGrand Total: $${dynamicTotal.toLocaleString(undefined, {minimumFractionDigits: 2})}\n\n${CONTRACT_TERMS}`;
       const blob = new Blob([contractContent], { type: 'text/plain' });
       const fileName = `${project.id}/Signed_Contract_${Date.now()}.txt`;
       
@@ -171,7 +164,6 @@ export default function CustomerPortal() {
         file_type: 'document'
       });
 
-      // 2. AUTO-SCHEDULING LOGIC
       let newStartDate = new Date();
       newStartDate.setDate(newStartDate.getDate() + 1); 
       
@@ -192,7 +184,6 @@ export default function CustomerPortal() {
         }
       }
 
-      // 3. UPDATE LINE ITEMS (Approved vs Rejected)
       const updates = lineItems.map(item => {
         return supabase.from('project_line_items').update({
           status: checkedItems[item.id] ? 'approved' : 'rejected'
@@ -200,18 +191,16 @@ export default function CustomerPortal() {
       })
       await Promise.all(updates)
 
-      // 4. Update status, start_date, AND NEW TOTAL in Supabase 
       const { error: statusError } = await supabase
         .from('projects')
         .update({ 
           status: 'Scheduled',
           start_date: newStartDate.toISOString(),
-          estimate: dynamicTotal // Save their custom total!
+          estimate: dynamicSubtotal // Saves subtotal to DB
         }) 
         .eq('id', project.id)
       if (statusError) throw statusError
 
-      // 5. Send Emails
       let clientEmail = project.customer_email;
       if (!clientEmail && project.customer_id) {
         const { data: cData } = await supabase.from('customers').select('email').eq('id', project.customer_id).single();
@@ -226,7 +215,9 @@ export default function CustomerPortal() {
           customerName: signatureName,
           customerEmail: clientEmail,
           projectName: project.name,
-          estimateAmount: dynamicTotal, // Send the custom total to Quickbooks!
+          subtotal: dynamicSubtotal,
+          gst: dynamicGST,
+          grandTotal: dynamicTotal,
           adminLink: `${window.location.origin}/projects/${project.id}`,
           contractUrl: contractUrl,
           portalLink: window.location.href, 
@@ -234,10 +225,9 @@ export default function CustomerPortal() {
         })
       })
 
-      // 6. Automated Comment
       await supabase.from('project_comments').insert({
         project_id: project.id,
-        content: `✅ The client (${signatureName}) has officially approved the estimate for $${dynamicTotal.toLocaleString()} and signed the contract.\n🗓️ Auto-scheduled for: ${formattedStartDate}\n💰 The client has been reminded to send their $500 deposit.`,
+        content: `✅ The client (${signatureName}) has officially approved the estimate for $${dynamicTotal.toLocaleString(undefined, {minimumFractionDigits: 2})} and signed the contract.\n🗓️ Auto-scheduled for: ${formattedStartDate}\n💰 The client has been reminded to send their $500 deposit.`,
         is_from_client: true
       })
 
@@ -283,7 +273,6 @@ export default function CustomerPortal() {
       
       <div className="max-w-4xl mx-auto space-y-6 relative z-10">
         
-        {/* --- BRAND HEADER --- */}
         <div className="flex flex-col items-center justify-center mb-10 animate-in fade-in slide-in-from-top-4 duration-700">
           <div className="bg-gradient-to-br from-amber-400 to-amber-600 w-16 h-16 rounded-3xl flex items-center justify-center mb-4 shadow-[0_10px_20px_rgba(245,158,11,0.3)]">
             <Hammer size={32} className="text-white" />
@@ -297,7 +286,6 @@ export default function CustomerPortal() {
           </div>
         </div>
 
-        {/* --- COUNTDOWN BANNER --- */}
         {showCountdown && (
            <div className="relative bg-gradient-to-br from-amber-400 via-orange-500 to-red-500 rounded-[2.5rem] shadow-[0_20px_40px_rgba(245,158,11,0.2)] p-10 text-white text-center overflow-hidden transform hover:scale-[1.01] transition-all duration-500 group animate-in zoom-in-95 duration-500">
               <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-10 mix-blend-overlay pointer-events-none"></div>
@@ -315,7 +303,6 @@ export default function CustomerPortal() {
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           
-          {/* Status/Title Card */}
           <div className={`${isEstimatePhase ? 'md:col-span-3 text-center items-center' : 'md:col-span-2'} bg-white/70 backdrop-blur-2xl rounded-[2.5rem] shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-white/80 p-8 flex flex-col justify-center relative overflow-hidden group hover:shadow-[0_15px_40px_rgb(0,0,0,0.08)] transition-all duration-500`}>
             <div className="absolute -right-10 -top-10 w-40 h-40 bg-gradient-to-br from-amber-400/20 to-orange-500/20 rounded-full blur-3xl group-hover:scale-150 transition-transform duration-700"></div>
             {!isEstimatePhase && <p className="text-xs font-bold uppercase tracking-widest text-slate-400 mb-2">Current Status</p>}
@@ -330,7 +317,6 @@ export default function CustomerPortal() {
             </div>
           </div>
 
-          {/* Scope of Work */}
           {project.scope_of_work && isEstimatePhase && (
             <div className="md:col-span-3 bg-white/70 backdrop-blur-2xl rounded-[2.5rem] shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-white/80 p-8 relative overflow-hidden group">
               <h3 className="text-xl font-bold text-slate-900 mb-4 flex items-center gap-2"><LayoutDashboard size={20} className="text-amber-500"/> Scope of Work</h3>
@@ -340,7 +326,6 @@ export default function CustomerPortal() {
             </div>
           )}
 
-          {/* Project Photos */}
           {projectImages.length > 0 && isEstimatePhase && (
              <div className="md:col-span-3 bg-white/70 backdrop-blur-2xl rounded-[2.5rem] shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-white/80 p-8 relative overflow-hidden group">
                 <h3 className="text-xl font-bold text-slate-900 mb-6 flex items-center gap-2"><ImageIcon size={20} className="text-amber-500"/> Attached Photos & Plans</h3>
@@ -354,7 +339,6 @@ export default function CustomerPortal() {
              </div>
           )}
 
-          {/* NEW: ITEMIZED ESTIMATE CARD */}
           {(lineItems?.length > 0 || Number(project.estimate) > 0) && (
             <div className={`${isEstimatePhase ? 'md:col-span-3' : ''} bg-slate-900/95 backdrop-blur-2xl rounded-[2.5rem] shadow-[0_20px_40px_rgba(0,0,0,0.15)] border border-slate-700/50 p-8 lg:p-10 text-white flex flex-col justify-between relative overflow-hidden transition-all duration-500`}>
               <div className="absolute inset-0 bg-gradient-to-b from-white/5 to-transparent opacity-50 pointer-events-none"></div>
@@ -365,18 +349,18 @@ export default function CustomerPortal() {
                 </div>
                 <div>
                   <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Project Investment</p>
-                  {isEstimatePhase && <p className="text-sm text-slate-300 font-medium">Select the options you'd like to include.</p>}
+                  {isEstimatePhase && <p className="text-sm text-slate-300 font-medium">Click to select the options you'd like to include.</p>}
                 </div>
               </div>
               
               <div className="relative z-10 w-full flex-1 flex flex-col">
                 
-                {/* The Interactive List */}
                 {lineItems?.length > 0 ? (
                   <div className="space-y-3 mb-8 flex-1">
                     {lineItems.map(item => (
-                      <label 
+                      <div 
                         key={item.id} 
+                        onClick={() => isEstimatePhase && toggleItem(item.id)}
                         className={`flex justify-between items-center p-4 rounded-xl border transition-all cursor-pointer select-none
                           ${checkedItems[item.id] ? 'bg-white/10 border-green-500/50 shadow-[0_0_15px_rgba(34,197,94,0.1)]' : 'bg-black/20 border-white/10 opacity-70 hover:opacity-100'}
                           ${!isEstimatePhase ? 'cursor-default pointer-events-none' : ''}
@@ -399,9 +383,9 @@ export default function CustomerPortal() {
                           </div>
                         </div>
                         <div className={`text-xl font-mono font-bold ${checkedItems[item.id] ? 'text-green-400' : 'text-slate-500'}`}>
-                          ${Number(item.price).toLocaleString()}
+                          ${Number(item.price).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}
                         </div>
-                      </label>
+                      </div>
                     ))}
                   </div>
                 ) : (
@@ -413,14 +397,28 @@ export default function CustomerPortal() {
                   </div>
                 )}
                 
-                {/* Grand Total & Approve Button */}
+                {/* --- NEW: GST CALCULATION AREA --- */}
                 <div className="mt-auto pt-6 border-t border-white/10">
                   {lineItems?.length > 0 && (
-                    <div className="flex justify-between items-end mb-6">
-                      <span className="text-slate-400 font-bold uppercase tracking-widest text-sm">Approved Total</span>
-                      <span className="text-4xl lg:text-5xl font-black text-white tracking-tighter">
-                        ${dynamicTotal.toLocaleString()}
-                      </span>
+                    <div className="mb-6 space-y-2">
+                      <div className="flex justify-between items-end">
+                        <span className="text-slate-400 font-bold uppercase tracking-widest text-sm">Subtotal</span>
+                        <span className="text-2xl font-black text-white tracking-tighter">
+                          ${dynamicSubtotal.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}
+                        </span>
+                      </div>
+                      <div className="flex justify-between items-end">
+                        <span className="text-slate-400 font-bold uppercase tracking-widest text-sm">GST (5%)</span>
+                        <span className="text-xl font-black text-white tracking-tighter">
+                          ${dynamicGST.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}
+                        </span>
+                      </div>
+                      <div className="flex justify-between items-end pt-4 mt-4 border-t border-white/10">
+                        <span className="text-slate-400 font-bold uppercase tracking-widest text-sm">Grand Total</span>
+                        <span className="text-4xl lg:text-5xl font-black text-amber-400 tracking-tighter">
+                          ${dynamicTotal.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}
+                        </span>
+                      </div>
                     </div>
                   )}
 
@@ -428,7 +426,7 @@ export default function CustomerPortal() {
                     <div className="max-w-md mx-auto w-full">
                       <button 
                         onClick={() => setShowContractModal(true)}
-                        disabled={dynamicTotal <= 0 && lineItems?.length > 0}
+                        disabled={dynamicSubtotal <= 0 && lineItems?.length > 0}
                         className="w-full bg-green-500 hover:bg-green-400 text-slate-900 font-bold py-4 px-6 rounded-xl transition-all shadow-[0_10px_20px_rgba(34,197,94,0.2)] flex items-center justify-center gap-2 text-lg hover:-translate-y-1 disabled:opacity-50 disabled:hover:translate-y-0 disabled:cursor-not-allowed"
                       >
                         <FileSignature size={22} />
@@ -442,10 +440,8 @@ export default function CustomerPortal() {
             </div>
           )}
 
-          {/* ONLY SHOW IF APPROVED */}
           {!isEstimatePhase && (
             <>
-              {/* Timeline & Location */}
               <div className="md:col-span-3 grid grid-cols-1 md:grid-cols-2 gap-6 animate-in slide-in-from-bottom-4">
                 <div className="bg-white/60 backdrop-blur-xl rounded-[2rem] shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-white/60 p-6 flex items-center gap-5">
                   <div className="w-14 h-14 rounded-2xl bg-amber-100 flex items-center justify-center shrink-0">
@@ -468,7 +464,6 @@ export default function CustomerPortal() {
                 </div>
               </div>
 
-              {/* Timeline Graphic */}
               <div className="md:col-span-3 bg-white/80 backdrop-blur-2xl rounded-[2.5rem] shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-white/60 p-8 lg:p-10 animate-in slide-in-from-bottom-4">
                 <h3 className="text-xl font-bold text-slate-900 mb-8">Project Timeline</h3>
                 <div className="relative pl-6">
@@ -480,7 +475,6 @@ export default function CustomerPortal() {
                 </div>
               </div>
 
-              {/* Messaging Widget */}
               <div className="md:col-span-3 bg-white/80 backdrop-blur-2xl rounded-[2.5rem] shadow-[0_8px_30px_rgb(0,0,0,0.06)] border border-white/60 p-8 lg:p-10 relative overflow-hidden animate-in slide-in-from-bottom-4">
                 <div className="absolute -right-20 -bottom-20 w-64 h-64 bg-blue-500/10 rounded-full blur-3xl pointer-events-none"></div>
                 <div className="flex items-center gap-4 mb-6 relative z-10">
@@ -530,7 +524,6 @@ export default function CustomerPortal() {
           )}
         </div>
 
-        {/* --- COMPANY CONTACT FOOTER --- */}
         <div className="text-center space-y-6 pt-10 pb-6">
           <p className="text-slate-500 font-bold uppercase tracking-widest text-xs">Questions about your estimate? Contact us anytime.</p>
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
@@ -545,7 +538,6 @@ export default function CustomerPortal() {
 
       </div>
 
-      {/* --- CONTRACT MODAL --- */}
       {showContractModal && (
         <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 sm:p-6 animate-in fade-in duration-300">
           <div className="bg-white w-full max-w-3xl rounded-3xl shadow-2xl flex flex-col max-h-[90vh] overflow-hidden animate-in zoom-in-95 duration-300">
@@ -568,7 +560,6 @@ export default function CustomerPortal() {
 
             <div className="p-6 border-t border-slate-100 bg-slate-50">
               
-              {/* DEPOSIT REMINDER BOX */}
               <div className="mb-6 bg-amber-50 border border-amber-200 rounded-xl p-4 flex gap-3 items-start shadow-sm">
                 <div className="w-8 h-8 rounded-full bg-amber-100 flex items-center justify-center shrink-0">
                   <DollarSign size={16} className="text-amber-600" />
@@ -585,14 +576,15 @@ export default function CustomerPortal() {
                 </div>
               </div>
 
-              <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center justify-between mb-4 border-t border-slate-200 pt-4">
                 <label className="block text-sm font-bold text-slate-800">9. CUSTOMER AUTHORIZATION</label>
                 <div className="text-right">
-                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block">Approved Total</span>
-                  <span className="text-xl font-black text-green-600">${dynamicTotal.toLocaleString()}</span>
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block">Subtotal: ${dynamicSubtotal.toLocaleString(undefined, {minimumFractionDigits: 2})}</span>
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block">GST (5%): ${dynamicGST.toLocaleString(undefined, {minimumFractionDigits: 2})}</span>
+                  <span className="text-xl font-black text-green-600 block mt-1">Total: ${dynamicTotal.toLocaleString(undefined, {minimumFractionDigits: 2})}</span>
                 </div>
               </div>
-              <p className="text-xs text-slate-500 mb-4">By typing your full name below, you authorize The Paving Stone Pros to commence the agreed-upon project and confirm you have selected the items totaling ${dynamicTotal.toLocaleString()}.</p>
+              <p className="text-xs text-slate-500 mb-4">By typing your full name below, you authorize The Paving Stone Pros to commence the agreed-upon project and confirm you have selected the items totaling ${dynamicTotal.toLocaleString(undefined, {minimumFractionDigits: 2})}.</p>
               
               <div className="flex flex-col sm:flex-row gap-4">
                 <input 
