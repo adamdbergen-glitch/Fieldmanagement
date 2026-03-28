@@ -109,7 +109,6 @@ export default function CustomerPortal() {
     }
   }, [lineItems])
 
-  // --- NEW: CALCULATION BREAKDOWN WITH GST ---
   const dynamicSubtotal = lineItems?.reduce((sum, item) => {
     return checkedItems[item.id] ? sum + Number(item.price) : sum
   }, 0) || 0
@@ -196,7 +195,7 @@ export default function CustomerPortal() {
         .update({ 
           status: 'Scheduled',
           start_date: newStartDate.toISOString(),
-          estimate: dynamicSubtotal // Saves subtotal to DB
+          estimate: dynamicSubtotal 
         }) 
         .eq('id', project.id)
       if (statusError) throw statusError
@@ -339,6 +338,48 @@ export default function CustomerPortal() {
              </div>
           )}
 
+          {/* NEW: WHY CHOOSE US SECTION */}
+          {isEstimatePhase && (
+            <div className="md:col-span-3 bg-white/70 backdrop-blur-2xl rounded-[2.5rem] shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-white/80 p-8 lg:p-10 relative overflow-hidden group">
+              <div className="absolute -right-20 -top-20 w-64 h-64 bg-amber-500/10 rounded-full blur-3xl pointer-events-none"></div>
+              
+              <div className="text-center mb-10 relative z-10">
+                <h3 className="text-sm font-bold text-amber-500 uppercase tracking-widest mb-2">The Paving Stone Pros Difference</h3>
+                <h2 className="text-3xl md:text-4xl font-black text-slate-900 tracking-tight">Built For Winnipeg. Built To Last.</h2>
+                <p className="text-slate-500 font-medium mt-4 max-w-2xl mx-auto">Transforming your property shouldn't be a headache. As Winnipeg's dedicated paving experts, we turn complex projects into a seamless, stress-free experience.</p>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6 relative z-10">
+                {/* Point 1 */}
+                <div className="bg-white/60 p-6 rounded-2xl border border-white/80 shadow-sm hover:shadow-md transition-all hover:-translate-y-1">
+                  <div className="w-12 h-12 rounded-xl bg-amber-100 flex items-center justify-center mb-4 text-amber-600">
+                    <Hammer size={24} />
+                  </div>
+                  <h4 className="text-lg font-bold text-slate-900 mb-2">Engineered for Manitoba</h4>
+                  <p className="text-sm text-slate-600 leading-relaxed">Our permanent-build approach uses deep-base preparation to ensure your investment survives the Red River Valley clay and extreme freeze-thaw cycles.</p>
+                </div>
+
+                {/* Point 2 */}
+                <div className="bg-white/60 p-6 rounded-2xl border border-white/80 shadow-sm hover:shadow-md transition-all hover:-translate-y-1">
+                  <div className="w-12 h-12 rounded-xl bg-slate-100 flex items-center justify-center mb-4 text-slate-600">
+                    <Sparkles size={24} />
+                  </div>
+                  <h4 className="text-lg font-bold text-slate-900 mb-2">Premium Materials</h4>
+                  <p className="text-sm text-slate-600 leading-relaxed">We never compromise on quality. We partner exclusively with industry leaders like Barkman, Belgard, and Techo-Bloc for unmatched beauty and durability.</p>
+                </div>
+
+                {/* Point 3 */}
+                <div className="bg-white/60 p-6 rounded-2xl border border-white/80 shadow-sm hover:shadow-md transition-all hover:-translate-y-1">
+                  <div className="w-12 h-12 rounded-xl bg-blue-100 flex items-center justify-center mb-4 text-blue-600">
+                    <CheckCircle2 size={24} />
+                  </div>
+                  <h4 className="text-lg font-bold text-slate-900 mb-2">3-Year Warranty</h4>
+                  <p className="text-sm text-slate-600 leading-relaxed">We operate with complete honesty and transparency. Every project is built to last—using 3/4 down limestone bases—and backed by our rock-solid 3-Year Workmanship Warranty.</p>
+                </div>
+              </div>
+            </div>
+          )}
+
           {(lineItems?.length > 0 || Number(project.estimate) > 0) && (
             <div className={`${isEstimatePhase ? 'md:col-span-3' : ''} bg-slate-900/95 backdrop-blur-2xl rounded-[2.5rem] shadow-[0_20px_40px_rgba(0,0,0,0.15)] border border-slate-700/50 p-8 lg:p-10 text-white flex flex-col justify-between relative overflow-hidden transition-all duration-500`}>
               <div className="absolute inset-0 bg-gradient-to-b from-white/5 to-transparent opacity-50 pointer-events-none"></div>
@@ -397,7 +438,6 @@ export default function CustomerPortal() {
                   </div>
                 )}
                 
-                {/* --- NEW: GST CALCULATION AREA --- */}
                 <div className="mt-auto pt-6 border-t border-white/10">
                   {lineItems?.length > 0 && (
                     <div className="mb-6 space-y-2">
