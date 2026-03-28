@@ -4,26 +4,25 @@ import { useAuth } from '../contexts/AuthContext'
 import { MapPin, Clock, Loader2, AlertTriangle, Play, Square, Briefcase } from 'lucide-react'
 
 export default function TimeClock({ projectId = null }) {
-  const { user, loading } = useAuth()
+  // Grab userProfile and isAdmin to check permissions
+  const { user, userProfile, isAdmin, loading } = useAuth()
+  
   const [status, setStatus] = useState('loading')
   const [currentLog, setCurrentLog] = useState(null)
   const [gpsLoading, setGpsLoading] = useState(false)
   const [error, setError] = useState(null)
   const [elapsed, setElapsed] = useState('00:00:00')
   
-  // NEW: Project Selection State
   const [projects, setProjects] = useState([])
   const [selectedProject, setSelectedProject] = useState(projectId || '')
 
-  // 1. Initial Load
   useEffect(() => {
     if (!loading && user) {
       checkStatus()
-      fetchProjects() // <--- NEW: Load projects
+      fetchProjects() 
     }
   }, [user, loading])
 
-  // 2. Timer Logic (Unchanged)
   useEffect(() => {
     let interval
     if (status === 'clocked-in' && currentLog?.clock_in_time) {
@@ -43,15 +42,28 @@ export default function TimeClock({ projectId = null }) {
     return () => clearInterval(interval)
   }, [status, currentLog])
 
-  // NEW: Fetch Active Projects for Dropdown
   async function fetchProjects() {
     try {
-      const { data, error } = await supabase
-        .from('projects')
-        .select('id, name')
-        .neq('status', 'Completed') // Don't show old jobs
-        .order('name')
+      let query;
+      
+      // If Admin, show all active projects. 
+      // If Crew/Foreman, ONLY show projects they are assigned to via project_crew table.
+      if (isAdmin) {
+        query = supabase
+          .from('projects')
+          .select('id, name')
+          .neq('status', 'Completed')
+          .order('name')
+      } else {
+        query = supabase
+          .from('projects')
+          .select('id, name, project_crew!inner(employee_id)')
+          .eq('project_crew.employee_id', user.id)
+          .neq('status', 'Completed')
+          .order('name')
+      }
 
+      const { data, error } = await query
       if (error) throw error
       setProjects(data || [])
     } catch (err) {
@@ -65,7 +77,7 @@ export default function TimeClock({ projectId = null }) {
 
       const { data, error } = await supabase
         .from('time_logs')
-        .select('*, project:projects(name)') // <--- UPDATED: Get Project Name
+        .select('*, project:projects(name)') 
         .eq('user_id', user.id)
         .is('clock_out_time', null)
         .order('clock_in_time', { ascending: false })
@@ -102,7 +114,6 @@ export default function TimeClock({ projectId = null }) {
   const handleClockIn = async () => {
     setError(null)
 
-    // NEW: Validation
     if (!selectedProject) {
       setError("Please select the project you are working on.")
       return
@@ -116,7 +127,7 @@ export default function TimeClock({ projectId = null }) {
         .from('time_logs')
         .insert({
           user_id: user.id,
-          project_id: selectedProject, // <--- NEW: Save Project ID
+          project_id: selectedProject, 
           gps_in_lat: coords.latitude,
           gps_in_long: coords.longitude
         })
@@ -155,7 +166,7 @@ export default function TimeClock({ projectId = null }) {
       setStatus('clocked-out')
       setCurrentLog(null)
       setElapsed('00:00:00')
-      setSelectedProject('') // Reset dropdown
+      setSelectedProject('') 
     } catch (err) {
       setError(err.message)
     } finally {
@@ -180,7 +191,6 @@ export default function TimeClock({ projectId = null }) {
           {status === 'clocked-in' ? (
             <div>
               <p className="text-green-700 font-mono font-bold text-2xl mt-1">{elapsed}</p>
-              {/* NEW: Show Current Project */}
               <p className="text-xs text-green-600 font-bold flex items-center gap-1 mt-1">
                 <Briefcase size={12}/> {currentLog?.project?.name || 'Unknown Job'}
               </p>
@@ -205,7 +215,6 @@ export default function TimeClock({ projectId = null }) {
       {status === 'clocked-out' ? (
         <div className="space-y-3">
           
-          {/* NEW: Project Dropdown (Only show if not on a specific project page) */}
           {!projectId && (
             <select 
               className="w-full p-3 border border-slate-300 rounded-lg bg-white font-bold text-slate-700 focus:ring-2 focus:ring-amber-500 outline-none text-sm transition-shadow"
