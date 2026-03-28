@@ -42,7 +42,6 @@ export default function InternalEstimator() {
     return { ...item, price: 0 }
   })
 
-  // GST Calculation Variables
   const grandTotalSub = evaluatedItems.reduce((sum, i) => sum + i.price, 0)
   const grandTotalGST = grandTotalSub * 0.05
   const grandTotalWithTax = grandTotalSub + grandTotalGST
@@ -115,21 +114,52 @@ export default function InternalEstimator() {
     setIsSaving(true)
     
     try {
-      const { data: newCust, error: cErr } = await supabase.from('customers').insert(customerInfo).select().single()
-      if (cErr) throw cErr
+      let finalCustomerId = null;
+      let matchFound = false;
+
+      // 1. DEDUPLICATION: Try to find by Email
+      if (customerInfo.email && customerInfo.email.trim() !== '') {
+        const { data } = await supabase.from('customers').select('id').eq('email', customerInfo.email.trim()).limit(1);
+        if (data && data.length > 0) { finalCustomerId = data[0].id; matchFound = true; }
+      }
+      
+      // 2. DEDUPLICATION: Try to find by Phone
+      if (!matchFound && customerInfo.phone && customerInfo.phone.trim() !== '') {
+        const { data } = await supabase.from('customers').select('id').eq('phone', customerInfo.phone.trim()).limit(1);
+        if (data && data.length > 0) { finalCustomerId = data[0].id; matchFound = true; }
+      }
+      
+      // 3. DEDUPLICATION: Try to find by exact Name match
+      if (!matchFound) {
+        const { data } = await supabase.from('customers').select('id').ilike('name', customerInfo.name.trim()).limit(1);
+        if (data && data.length > 0) { finalCustomerId = data[0].id; matchFound = true; }
+      }
+
+      // 4. Save or Update Customer
+      if (matchFound) {
+        // Update the existing customer with any new info extracted
+        await supabase.from('customers').update(customerInfo).eq('id', finalCustomerId);
+      } else {
+        // Create brand new customer
+        const { data: newCust, error: cErr } = await supabase.from('customers').insert(customerInfo).select().single()
+        if (cErr) throw cErr
+        finalCustomerId = newCust.id
+      }
 
       const scopeText = `Auto-extracted via AI Chat:\n${evaluatedItems.length} options/areas discussed.\n\n--- Project Summary ---\n${extractedMeta?.scope_summary || "No summary provided."}`
 
+      // 5. Create Project linked to the Customer
       const { data: proj, error: pErr } = await supabase.from('projects').insert({
         name: `Lead: ${customerInfo.name}`,
-        customer_id: newCust.id,
-        estimate: grandTotalSub, // We save the Subtotal to the DB as standard practice
+        customer_id: finalCustomerId,
+        estimate: grandTotalSub, 
         status: 'New', 
         scope_of_work: scopeText
       }).select().single()
 
       if (pErr) throw pErr
 
+      // 6. Create Line Items
       const linesToInsert = evaluatedItems.map(item => ({
         project_id: proj.id,
         title: item.title || `${item.sqft} sqft ${item.project_type}`,
