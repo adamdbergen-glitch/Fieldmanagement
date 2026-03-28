@@ -77,8 +77,8 @@ export default function ProjectCrew({ projectId }) {
           Assigned Crew
         </h3>
         
-        {/* Only Admin/Foreman can add crew */}
-        {can(userProfile?.role, PERMISSIONS.CAN_DELETE_PROJECT) && (
+        {/* FIX: Changed from CAN_DELETE_PROJECT to CAN_MANAGE_CREW so Foremen can assign */}
+        {can(userProfile?.role, PERMISSIONS.CAN_MANAGE_CREW) && (
           !isAdding ? (
             <button 
               onClick={() => setIsAdding(true)}
@@ -143,8 +143,8 @@ export default function ProjectCrew({ projectId }) {
               </div>
             </div>
 
-            {/* Remove Button (Admin/Foreman Only) */}
-            {can(userProfile?.role, PERMISSIONS.CAN_DELETE_PROJECT) && (
+            {/* FIX: Changed to CAN_MANAGE_CREW */}
+            {can(userProfile?.role, PERMISSIONS.CAN_MANAGE_CREW) && (
               <button 
                 onClick={() => handleRemoveCrew(item.id)}
                 className="text-slate-300 hover:text-red-500 p-1"
