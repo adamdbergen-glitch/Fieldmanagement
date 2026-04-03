@@ -616,5 +616,34 @@ export default function ProjectDetails() {
               </div>
               <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
                 <h3 className="font-bold text-lg mb-4 flex items-center gap-2"><Receipt size={20} /> Expense Log</h3>
-                <form onSubmit={handleAddExpense} className="flex flex-col md:flex-row gap-3 mb-6 bg-slate-50 p-4 rounded-lg border border-slate-100">
-                  <input className="flex-1 p-2 border rounded text-sm" placeholder="Item (
+               <form onSubmit={handleAddExpense} className="flex flex-col md:flex-row gap-3 mb-6 bg-slate-50 p-4 rounded-lg border border-slate-100">
+                  <input className="flex-1 p-2 border rounded text-sm" placeholder="Item (e.g. Gas, Gravel)" value={newExpense.description} onChange={e => setNewExpense({...newExpense, description: e.target.value})} />
+                  <input type="number" className="w-32 p-2 border rounded text-sm" placeholder="Cost ($)" value={newExpense.amount} onChange={e => setNewExpense({...newExpense, amount: e.target.value})} />
+                  <button disabled={isSubmittingExpense} className="bg-slate-900 text-white px-4 py-2 rounded font-bold text-sm flex items-center justify-center gap-1 hover:bg-slate-800"><Plus size={16} /> Add</button>
+                </form>
+                <div className="space-y-3">
+                  {expenses?.length === 0 && <p className="text-center text-slate-400 py-4 text-sm">No expenses logged yet.</p>}
+                  {expenses?.map(ex => (
+                    <div key={ex.id} className="flex items-center justify-between p-3 hover:bg-slate-50 rounded-lg border border-transparent hover:border-slate-100 transition-colors group">
+                      <div>
+                        <p className="font-bold text-slate-800">{ex.description}</p>
+                        <p className="text-xs text-slate-500">{format(parseISO(ex.purchased_at), 'MMM d, h:mm a')} • by {ex.profile?.full_name || 'Unknown'}</p>
+                      </div>
+                      <div className="flex items-center gap-4">
+                        <span className="font-mono font-bold text-red-600">-${Number(ex.amount).toFixed(2)}</span>
+                        {isAdmin && <button onClick={() => handleDeleteExpense(ex.id)} className="text-slate-300 hover:text-red-500"><Trash2 size={16} /></button>}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+          {activeTab === 'sops' && <div className="animate-in fade-in slide-in-from-bottom-2 bg-white rounded-xl shadow-sm border border-slate-200 p-1 md:p-6"><ProjectSOPs projectId={id} /></div>}
+          {activeTab === 'materials' && <div className="animate-in fade-in slide-in-from-bottom-2 bg-white rounded-xl shadow-sm border border-slate-200 p-1 md:p-6"><ProjectMaterials projectId={id} /></div>}
+          {activeTab === 'comments' && <div className="animate-in fade-in slide-in-from-bottom-2 bg-white rounded-xl shadow-sm border border-slate-200 p-4 md:p-6"><ProjectComments projectId={id} /></div>}
+        </div>
+      )}
+    </div>
+  )
+}
