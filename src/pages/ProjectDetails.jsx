@@ -24,7 +24,6 @@ export default function ProjectDetails() {
   const queryClient = useQueryClient()
   const { userProfile } = useAuth()
   
-  // FIX: Put userRole back so the permission checks at the bottom work!
   const userRole = userProfile?.role || 'crew'
   const isAdmin = userRole === 'admin'
 
@@ -43,6 +42,11 @@ export default function ProjectDetails() {
 
   const [newLine, setNewLine] = useState({ title: '', description: '', price: '', is_change_order: false })
   const [isSubmittingLine, setIsSubmittingLine] = useState(false)
+
+  // --- NEW EDITING STATE FOR LINE ITEMS ---
+  const [editingLineId, setEditingLineId] = useState(null)
+  const [editingLineData, setEditingLineData] = useState({ title: '', description: '', price: '', is_change_order: false })
+  const [isUpdatingLine, setIsUpdatingLine] = useState(false)
 
   const { data: project, isLoading, error } = useQuery({
     queryKey: ['project', id],
@@ -179,6 +183,37 @@ export default function ProjectDetails() {
     if (!window.confirm("Delete this line item?")) return
     await supabase.from('project_line_items').delete().eq('id', lineId)
     queryClient.invalidateQueries(['project_line_items', id])
+  }
+
+  // --- NEW EDITING LOGIC FOR LINE ITEMS ---
+  const handleEditLineStart = (item) => {
+    setEditingLineId(item.id)
+    setEditingLineData({
+      title: item.title,
+      description: item.description || '',
+      price: item.price,
+      is_change_order: item.is_change_order || false
+    })
+  }
+
+  const handleEditLineSave = async (lineId) => {
+    setIsUpdatingLine(true)
+    try {
+      const { error } = await supabase.from('project_line_items').update({
+        title: editingLineData.title,
+        description: editingLineData.description,
+        price: parseFloat(editingLineData.price),
+        is_change_order: editingLineData.is_change_order
+      }).eq('id', lineId)
+      
+      if (error) throw error
+      setEditingLineId(null)
+      queryClient.invalidateQueries(['project_line_items', id])
+    } catch (err) {
+      alert("Error updating item: " + err.message)
+    } finally {
+      setIsUpdatingLine(false)
+    }
   }
 
   const handleAddExpense = async (e) => {
@@ -422,25 +457,51 @@ export default function ProjectDetails() {
                   <div className="space-y-3 mb-4">
                     {lineItems?.map(item => (
                        <div key={item.id} className={`flex justify-between items-start p-3 border rounded-lg ${item.status === 'rejected' ? 'bg-slate-100 border-slate-200 opacity-50' : 'bg-slate-50 border-slate-200'}`}>
-                          <div>
-                            <p className={`font-bold ${item.status === 'rejected' ? 'text-slate-500 line-through' : 'text-slate-800'}`}>
-                              {item.title} 
-                              {item.is_change_order && <span className="text-[10px] bg-purple-100 text-purple-700 px-2 py-0.5 rounded ml-2 uppercase font-bold tracking-wider">Change Order</span>}
-                            </p>
-                            <p className="text-xs text-slate-500 mt-1">{item.description}</p>
-                            
-                            {isAdmin && (
-                              <p className={`text-[10px] font-bold mt-2 uppercase tracking-wider ${item.status === 'approved' ? 'text-green-600' : item.status === 'rejected' ? 'text-red-500' : 'text-amber-500'}`}>
-                                Status: {item.status}
-                              </p>
-                            )}
-                          </div>
                           
-                          {/* SECURITY: Crew only sees what to build, not the price */}
-                          <div className="flex items-center gap-4">
-                            {isAdmin && <span className="font-bold text-slate-900">${Number(item.price).toLocaleString()}</span>}
-                            {isAdmin && <button onClick={() => handleDeleteLineItem(item.id)} className="text-slate-300 hover:text-red-500"><Trash2 size={16}/></button>}
-                          </div>
+                          {/* --- EDIT MODE FOR THIS ITEM --- */}
+                          {editingLineId === item.id ? (
+                            <div className="flex flex-col gap-3 w-full animate-in fade-in">
+                              <div className="flex gap-2">
+                                <input className="flex-1 p-2 border border-slate-300 rounded focus:ring-2 focus:ring-amber-500 outline-none text-sm" value={editingLineData.title} onChange={e=>setEditingLineData({...editingLineData, title: e.target.value})} />
+                                <input type="number" step="0.01" className="w-32 p-2 border border-slate-300 rounded focus:ring-2 focus:ring-amber-500 outline-none text-sm" value={editingLineData.price} onChange={e=>setEditingLineData({...editingLineData, price: e.target.value})} />
+                              </div>
+                              <input className="w-full p-2 border border-slate-300 rounded focus:ring-2 focus:ring-amber-500 outline-none text-sm" value={editingLineData.description} onChange={e=>setEditingLineData({...editingLineData, description: e.target.value})} />
+                              <label className="flex items-center gap-2 text-sm text-slate-600 font-bold cursor-pointer w-fit">
+                                <input type="checkbox" checked={editingLineData.is_change_order} onChange={e=>setEditingLineData({...editingLineData, is_change_order: e.target.checked})} className="accent-amber-500 w-4 h-4 cursor-pointer" />
+                                Change Order
+                              </label>
+                              <div className="flex gap-2 mt-1">
+                                <button onClick={() => handleEditLineSave(item.id)} disabled={isUpdatingLine} className="bg-green-600 hover:bg-green-700 text-white px-4 py-1.5 rounded-lg text-xs font-bold transition-colors">Save Changes</button>
+                                <button onClick={() => setEditingLineId(null)} className="bg-slate-200 hover:bg-slate-300 text-slate-700 px-4 py-1.5 rounded-lg text-xs font-bold transition-colors">Cancel</button>
+                              </div>
+                            </div>
+                          ) : (
+                            <>
+                              <div>
+                                <p className={`font-bold ${item.status === 'rejected' ? 'text-slate-500 line-through' : 'text-slate-800'}`}>
+                                  {item.title} 
+                                  {item.is_change_order && <span className="text-[10px] bg-purple-100 text-purple-700 px-2 py-0.5 rounded ml-2 uppercase font-bold tracking-wider">Change Order</span>}
+                                </p>
+                                <p className="text-xs text-slate-500 mt-1">{item.description}</p>
+                                
+                                {isAdmin && (
+                                  <p className={`text-[10px] font-bold mt-2 uppercase tracking-wider ${item.status === 'approved' ? 'text-green-600' : item.status === 'rejected' ? 'text-red-500' : 'text-amber-500'}`}>
+                                    Status: {item.status}
+                                  </p>
+                                )}
+                              </div>
+                              
+                              <div className="flex items-center gap-4">
+                                {isAdmin && <span className="font-bold text-slate-900">${Number(item.price).toLocaleString()}</span>}
+                                {isAdmin && (
+                                  <div className="flex items-center gap-2">
+                                    <button onClick={() => handleEditLineStart(item)} className="text-slate-400 hover:text-blue-500"><Edit2 size={16}/></button>
+                                    <button onClick={() => handleDeleteLineItem(item.id)} className="text-slate-400 hover:text-red-500"><Trash2 size={16}/></button>
+                                  </div>
+                                )}
+                              </div>
+                            </>
+                          )}
                        </div>
                     ))}
                     {lineItems?.length === 0 && <p className="text-sm text-slate-400 italic text-center py-4">No line items added yet.</p>}
@@ -501,7 +562,6 @@ export default function ProjectDetails() {
                     </button>
                   </div>
                   
-                  {/* EMAIL BUTTONS (SECURITY: Admin Only) */}
                   {isAdmin && (
                     <div className="space-y-2">
                       <button type="button" onClick={handleSendEstimateEmail} disabled={isSendingEstimate || calculatedEstimate <= 0} className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold py-2 rounded-lg flex items-center justify-center gap-2 transition-colors disabled:opacity-50">
@@ -557,33 +617,4 @@ export default function ProjectDetails() {
               <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
                 <h3 className="font-bold text-lg mb-4 flex items-center gap-2"><Receipt size={20} /> Expense Log</h3>
                 <form onSubmit={handleAddExpense} className="flex flex-col md:flex-row gap-3 mb-6 bg-slate-50 p-4 rounded-lg border border-slate-100">
-                  <input className="flex-1 p-2 border rounded text-sm" placeholder="Item (e.g. Gas, Gravel)" value={newExpense.description} onChange={e => setNewExpense({...newExpense, description: e.target.value})} />
-                  <input type="number" className="w-32 p-2 border rounded text-sm" placeholder="Cost ($)" value={newExpense.amount} onChange={e => setNewExpense({...newExpense, amount: e.target.value})} />
-                  <button disabled={isSubmittingExpense} className="bg-slate-900 text-white px-4 py-2 rounded font-bold text-sm flex items-center justify-center gap-1 hover:bg-slate-800"><Plus size={16} /> Add</button>
-                </form>
-                <div className="space-y-3">
-                  {expenses?.length === 0 && <p className="text-center text-slate-400 py-4 text-sm">No expenses logged yet.</p>}
-                  {expenses?.map(ex => (
-                    <div key={ex.id} className="flex items-center justify-between p-3 hover:bg-slate-50 rounded-lg border border-transparent hover:border-slate-100 transition-colors group">
-                      <div>
-                        <p className="font-bold text-slate-800">{ex.description}</p>
-                        <p className="text-xs text-slate-500">{format(parseISO(ex.purchased_at), 'MMM d, h:mm a')} • by {ex.profile?.full_name || 'Unknown'}</p>
-                      </div>
-                      <div className="flex items-center gap-4">
-                        <span className="font-mono font-bold text-red-600">-${Number(ex.amount).toFixed(2)}</span>
-                        {isAdmin && <button onClick={() => handleDeleteExpense(ex.id)} className="text-slate-300 hover:text-red-500"><Trash2 size={16} /></button>}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          )}
-          {activeTab === 'sops' && <div className="animate-in fade-in slide-in-from-bottom-2 bg-white rounded-xl shadow-sm border border-slate-200 p-1 md:p-6"><ProjectSOPs projectId={id} /></div>}
-          {activeTab === 'materials' && <div className="animate-in fade-in slide-in-from-bottom-2 bg-white rounded-xl shadow-sm border border-slate-200 p-1 md:p-6"><ProjectMaterials projectId={id} /></div>}
-          {activeTab === 'comments' && <div className="animate-in fade-in slide-in-from-bottom-2 bg-white rounded-xl shadow-sm border border-slate-200 p-4 md:p-6"><ProjectComments projectId={id} /></div>}
-        </div>
-      )}
-    </div>
-  )
-}
+                  <input className="flex-1 p-2 border rounded text-sm" placeholder="Item (
