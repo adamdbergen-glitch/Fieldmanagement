@@ -3,11 +3,10 @@ import react from '@vitejs/plugin-react'
 
 // https://vite.dev/config/
 export default defineConfig({
-  // FIX: Explicitly set the automatic runtime to silence the warning
+  base: './', // <--- THIS IS THE MAGIC LINE YOU ADDED
   plugins: [react({ jsxRuntime: 'automatic' })],
   
   server: {
-    // Disable caching in dev mode
     middlewareMode: false,
     headers: {
       'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
@@ -16,9 +15,15 @@ export default defineConfig({
     }
   },
   build: {
-    // Generate unique filenames for cache busting
+    chunkSizeWarningLimit: 1000, 
     rollupOptions: {
       output: {
+        manualChunks: {
+          vendor: ['react', 'react-dom', 'react-router-dom'],
+          supabase: ['@supabase/supabase-js'],
+          calendar: ['react-big-calendar'],
+          icons: ['lucide-react']
+        },
         entryFileNames: '[name].[hash].js',
         chunkFileNames: '[name].[hash].js',
         assetFileNames: '[name].[hash][extname]'

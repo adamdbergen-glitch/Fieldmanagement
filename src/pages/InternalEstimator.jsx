@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { can } from '../lib/permissions'
-import { calculatePavingEstimate } from '../lib/pricing' 
+import { calculatePavingEstimate, calculateRelevelEstimate } from '../lib/pricing' 
 import { Send, Bot, UserPlus, Loader2, RefreshCw, Paperclip, X, Image as ImageIcon, Mic, ListPlus } from 'lucide-react'
 
 export default function InternalEstimator() {
@@ -31,12 +31,25 @@ export default function InternalEstimator() {
 
   const evaluatedItems = extractedLineItems.map(item => {
     if (item.sqft > 0) {
-      const est = calculatePavingEstimate({
-          project_type: item.project_type,
-          areas: [{ square_feet: Number(item.sqft), is_backyard: !!item.is_backyard }],
-          access_level: extractedMeta?.access_level || "medium",
-          material_code: item.material_code
-      })
+      let est;
+      
+      // Route to the correct calculator
+      if (item.project_type === "relevel") {
+        est = calculateRelevelEstimate({
+          areas: [{ square_feet: Number(item.sqft) }],
+          needsEdging: !!item.needs_edging,
+          isPoorCondition: !!item.is_poor_condition,
+          isOutOfTown: false 
+        })
+      } else {
+        est = calculatePavingEstimate({
+            project_type: item.project_type,
+            areas: [{ square_feet: Number(item.sqft), is_backyard: !!item.is_backyard }],
+            access_level: extractedMeta?.access_level || "medium",
+            material_code: item.material_code
+        })
+      }
+      
       return { ...item, price: est.exact_price }
     }
     return { ...item, price: 0 }
@@ -84,7 +97,6 @@ export default function InternalEstimator() {
         body: JSON.stringify({ 
           messages: [...messages, newMsg],
           attachment: attachmentPayload,
-          // NEW: Send the current state so the AI doesn't forget anything!
           currentState: {
             line_items: extractedLineItems,
             meta: extractedMeta,
