@@ -122,6 +122,43 @@ export function calculatePavingEstimate({
   };
 }
 
+// --- NEW FUNCTION ADDED HERE ---
+export function calculateRelevelEstimate({
+  areas,
+  needsEdging,
+  isPoorCondition,
+  isOutOfTown
+}) {
+  const totalSqft = (areas || []).reduce((sum, a) => sum + (a.square_feet || 0), 0);
+  
+  // Base labour for lift, re-bed, and relay
+  let baseRate = 12.00; 
+
+  if (isPoorCondition) baseRate += 4.00; // Extra base prep/cleaning needed
+  if (needsEdging) baseRate += 2.50; // New spikes/edge restraints
+
+  let subtotal = baseRate * totalSqft;
+
+  if (isOutOfTown) subtotal *= 1.10; // 10% out of town fee
+
+  // Enforce the minimum job fee
+  const isMinJob = subtotal < MIN_JOB;
+  if (isMinJob) subtotal = MIN_JOB;
+
+  const cushioned = subtotal * CHATBOT_CUSHION;
+  const low = Math.round(cushioned * 0.90);
+  const high = Math.round(cushioned * 1.10);
+
+  return {
+    currency: "CAD",
+    exact_price: Math.round(subtotal),
+    cushioned_price: Math.round(cushioned),
+    low,
+    high,
+    details: `${Math.round(totalSqft)} sqft Re-leveling. Est: $${(cushioned/totalSqft).toFixed(2)}/sqft avg. ${isMinJob ? "(MINIMUM JOB APPLIED)" : ""}`
+  };
+}
+
 export function inferMaterialCodeFromText(text) {
   const t = (text || "").toLowerCase();
   
