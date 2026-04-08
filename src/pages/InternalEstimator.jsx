@@ -30,10 +30,15 @@ export default function InternalEstimator() {
   }
 
   const evaluatedItems = extractedLineItems.map(item => {
+    // 1. If it's a custom item, skip the pricing engine and default to $0
+    if (item.project_type === "other" || !item.project_type) {
+      return { ...item, price: 0 }
+    }
+
+    // 2. If it's standard paving/releveling, do the math!
     if (item.sqft > 0) {
       let est;
       
-      // Route to the correct calculator
       if (item.project_type === "relevel") {
         est = calculateRelevelEstimate({
           areas: [{ square_feet: Number(item.sqft) }],
@@ -52,6 +57,8 @@ export default function InternalEstimator() {
       
       return { ...item, price: est.exact_price }
     }
+    
+    // Fallback
     return { ...item, price: 0 }
   })
 
