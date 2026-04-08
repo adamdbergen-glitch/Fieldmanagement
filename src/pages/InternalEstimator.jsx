@@ -4,7 +4,7 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { can } from '../lib/permissions'
 import { calculatePavingEstimate, calculateRelevelEstimate } from '../lib/pricing' 
-import { Send, Bot, UserPlus, Loader2, RefreshCw, Paperclip, X, Image as ImageIcon, Mic, ListPlus, Calculator, Edit2, Check } from 'lucide-react'
+import { Send, Bot, UserPlus, Loader2, RefreshCw, Paperclip, X, Image as ImageIcon, Mic, ListPlus, Calculator, Pencil, Check } from 'lucide-react'
 
 export default function InternalEstimator() {
   const navigate = useNavigate()
@@ -319,7 +319,7 @@ export default function InternalEstimator() {
                         <div className="flex items-center gap-3">
                            <div className="text-sm font-mono font-bold text-white">${item.price.toLocaleString()}</div>
                            <button onClick={() => startEditing(index, item)} className="text-slate-300 bg-slate-700 hover:bg-slate-600 hover:text-white p-2 rounded flex-shrink-0 shadow-sm">
-                             <Edit2 size={14}/>
+                             <Pencil size={14}/>
                            </button>
                         </div>
                       </div>
