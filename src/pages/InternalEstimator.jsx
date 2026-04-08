@@ -3,25 +3,27 @@ import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { can } from '../lib/permissions'
-import { calculatePavingEstimate } from '../lib/pricing' 
-import { Send, Bot, UserPlus, Loader2, RefreshCw, Paperclip, X, Image as ImageIcon, Mic, ListPlus } from 'lucide-react'
+import { calculatePavingEstimate, calculateRelevelEstimate } from '../lib/pricing' 
+import { Send, Bot, UserPlus, Loader2, RefreshCw, Calculator, Edit2, Check, X } from 'lucide-react'
 
 export default function InternalEstimator() {
   const navigate = useNavigate()
   const { userProfile } = useAuth()
   const scrollRef = useRef(null)
-  const fileInputRef = useRef(null)
 
-  const [messages, setMessages] = useState([{ role: 'assistant', content: "Hey Adam! What project are we scoping out today? You can type, or upload a sketch/voice memo." }])
+  const [messages, setMessages] = useState([{ role: 'assistant', content: "Hey Adam! What project are we scoping out today?" }])
   const [input, setInput] = useState('')
-  const [file, setFile] = useState(null)
   const [isTyping, setIsTyping] = useState(false)
-  
-  const [extractedLineItems, setExtractedLineItems] = useState([])
-  const [extractedMeta, setExtractedMeta] = useState(null)
-  
   const [isSaving, setIsSaving] = useState(false)
+  
+  // New Stateful Variables for Multi-Item Quotes
+  const [lineItems, setLineItems] = useState([])
+  const [extractedMeta, setExtractedMeta] = useState(null)
   const [customerInfo, setCustomerInfo] = useState({ name: '', phone: '', email: '', address: '' })
+
+  // Editing State for Line Items on Mobile
+  const [editingIndex, setEditingIndex] = useState(null)
+  const [editForm, setEditForm] = useState({})
 
   useEffect(() => { scrollRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages])
 
@@ -29,74 +31,64 @@ export default function InternalEstimator() {
     return <div className="p-10 text-center font-bold text-slate-500">Admin Access Only</div>
   }
 
-  const evaluatedItems = extractedLineItems.map(item => {
-    if (item.sqft > 0) {
-      const est = calculatePavingEstimate({
-          project_type: item.project_type,
-          areas: [{ square_feet: Number(item.sqft), is_backyard: !!item.is_backyard }],
-          access_level: extractedMeta?.access_level || "medium",
-          material_code: item.material_code
-      })
-      return { ...item, price: est.exact_price }
-    }
-    return { ...item, price: 0 }
-  })
+  // Live Math Calculation for MULTIPLE Line Items
+  const getCalculatedTotals = () => {
+    let grandTotal = 0;
+    const itemsWithPrices = lineItems.map(item => {
+      let price = 0;
+      if (item.sqft > 0) {
+        if (item.project_type === 'relevel') {
+          const est = calculateRelevelEstimate({
+            areas: [{ square_feet: Number(item.sqft) }],
+            needsEdging: !!item.needs_edging,
+            isPoorCondition: !!item.is_poor_condition,
+            isOutOfTown: extractedMeta?.is_out_of_town || false
+          });
+          price = est ? est.exact_price : 0;
+        } else {
+          const est = calculatePavingEstimate({
+            project_type: item.project_type || 'patio',
+            access_level: extractedMeta?.access_level || 'medium',
+            material_code: item.material_code || 'barkman_holland',
+            city_town: extractedMeta?.city_town || 'Winnipeg',
+            is_out_of_town: extractedMeta?.is_out_of_town || false,
+            areas: [{ square_feet: Number(item.sqft), is_backyard: !!item.is_backyard }]
+          });
+          price = est ? est.exact_price : 0;
+        }
+      }
+      grandTotal += price;
+      return { ...item, calculatedPrice: price };
+    });
+    return { items: itemsWithPrices, total: grandTotal };
+  };
 
-  const grandTotalSub = evaluatedItems.reduce((sum, i) => sum + i.price, 0)
-  const grandTotalGST = grandTotalSub * 0.05
-  const grandTotalWithTax = grandTotalSub + grandTotalGST
+  const { items: pricedLineItems, total: targetInternalPrice } = getCalculatedTotals();
 
   const handleChat = async (e) => {
     e.preventDefault()
-    if (!input.trim() && !file) return
+    if (!input.trim()) return
 
-    const newMsg = { role: 'user', content: input || "Attached file for analysis." }
+    const newMsg = { role: 'user', content: input }
     setMessages(prev => [...prev, newMsg])
     setInput('')
     setIsTyping(true)
 
     try {
-      let attachmentPayload = null;
-
-      if (file) {
-        const fileExt = file.name.split('.').pop()
-        const fileName = `estimator/${Date.now()}.${fileExt}`
-        
-        const { error: uploadError } = await supabase.storage.from('portal-uploads').upload(fileName, file)
-        if (uploadError) throw uploadError
-        
-        const { data: urlData } = supabase.storage.from('portal-uploads').getPublicUrl(fileName)
-        
-        const isAudio = file.type.startsWith('audio') || file.type.startsWith('video') || file.name.match(/\.(m4a|mp3|wav|ogg)$/i);
-        
-        attachmentPayload = {
-          url: urlData.publicUrl,
-          type: isAudio ? 'audio' : 'image'
-        };
-        
-        setFile(null);
-        if(fileInputRef.current) fileInputRef.current.value = '';
-      }
-
+      // Pass the messages AND the current running state to the server
       const res = await fetch('https://pavingstone-chatbot.onrender.com/api/internal-chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
           messages: [...messages, newMsg],
-          attachment: attachmentPayload,
-          // NEW: Send the current state so the AI doesn't forget anything!
-          currentState: {
-            line_items: extractedLineItems,
-            meta: extractedMeta,
-            customer: customerInfo
-          }
+          currentState: { line_items: lineItems, meta: extractedMeta, customer: customerInfo }
         })
       })
       const data = await res.json()
       
       setMessages(prev => [...prev, { role: 'assistant', content: data.reply }])
       
-      if (data.line_items) setExtractedLineItems(data.line_items)
+      if (data.line_items) setLineItems(data.line_items)
       if (data.meta) setExtractedMeta(data.meta)
       if (data.customer) {
         setCustomerInfo(prev => ({
@@ -108,68 +100,59 @@ export default function InternalEstimator() {
       }
     } catch (err) {
       console.error("Chat failed:", err)
-      alert("Error processing request: " + err.message);
     } finally {
       setIsTyping(false)
     }
   }
 
+  // Editing Handlers
+  const startEditing = (index, item) => {
+    setEditingIndex(index);
+    setEditForm({ ...item });
+  }
+
+  const saveEdit = () => {
+    const updatedItems = [...lineItems];
+    updatedItems[editingIndex] = { ...editForm, sqft: Number(editForm.sqft) || 0 };
+    setLineItems(updatedItems);
+    setEditingIndex(null);
+  }
+
   const handleCreateLead = async () => {
-    if (evaluatedItems.length === 0) return alert("No items to quote!")
+    if (lineItems.length === 0) return alert("You need at least one project area to create a lead.")
     if (!customerInfo.name.trim()) return alert("Enter a customer name.")
     setIsSaving(true)
     
     try {
-      let finalCustomerId = null;
-      let matchFound = false;
-
-      if (customerInfo.email && customerInfo.email.trim() !== '') {
-        const { data } = await supabase.from('customers').select('id').eq('email', customerInfo.email.trim()).limit(1);
-        if (data && data.length > 0) { finalCustomerId = data[0].id; matchFound = true; }
-      }
+      const { data: newCust, error: cErr } = await supabase.from('customers').insert({
+        name: customerInfo.name,
+        email: customerInfo.email,
+        phone: customerInfo.phone,
+        address: customerInfo.address
+      }).select().single()
       
-      if (!matchFound && customerInfo.phone && customerInfo.phone.trim() !== '') {
-        const { data } = await supabase.from('customers').select('id').eq('phone', customerInfo.phone.trim()).limit(1);
-        if (data && data.length > 0) { finalCustomerId = data[0].id; matchFound = true; }
-      }
-      
-      if (!matchFound) {
-        const { data } = await supabase.from('customers').select('id').ilike('name', customerInfo.name.trim()).limit(1);
-        if (data && data.length > 0) { finalCustomerId = data[0].id; matchFound = true; }
-      }
+      if (cErr) throw cErr
 
-      if (matchFound) {
-        await supabase.from('customers').update(customerInfo).eq('id', finalCustomerId);
-      } else {
-        const { data: newCust, error: cErr } = await supabase.from('customers').insert(customerInfo).select().single()
-        if (cErr) throw cErr
-        finalCustomerId = newCust.id
-      }
+      const scopeText = `Auto-extracted via AI Chat:
 
-      const scopeText = `Auto-extracted via AI Chat:\n${evaluatedItems.length} options/areas discussed.\n\n--- Project Summary ---\n${extractedMeta?.scope_summary || "No summary provided."}`
+Line Items:
+${lineItems.map(i => `- ${i.title || i.project_type}: ${i.sqft} sqft (${i.material_code || 'Standard'})`).join('\n')}
+
+--- Project Summary ---
+${extractedMeta?.scope_summary || "No summary provided."}`
+
+      const mainProjectName = lineItems[0]?.project_type || 'Project';
+      const mainSqft = lineItems.reduce((sum, item) => sum + (Number(item.sqft) || 0), 0);
 
       const { data: proj, error: pErr } = await supabase.from('projects').insert({
-        name: `Lead: ${customerInfo.name}`,
-        customer_id: finalCustomerId,
-        estimate: grandTotalSub, 
-        status: 'New', 
+        name: `Lead: ${mainSqft} sqft ${mainProjectName}`,
+        customer_id: newCust.id,
+        estimate: targetInternalPrice,
+        status: 'Lead',
         scope_of_work: scopeText
       }).select().single()
 
       if (pErr) throw pErr
-
-      const linesToInsert = evaluatedItems.map(item => ({
-        project_id: proj.id,
-        title: item.title || `${item.sqft} sqft ${item.project_type}`,
-        description: `Size: ${item.sqft} sqft | Material: ${item.material_text || 'Standard'}`,
-        price: item.price,
-        status: 'pending',
-        is_change_order: false
-      }))
-
-      const { error: lErr } = await supabase.from('project_line_items').insert(linesToInsert)
-      if (lErr) throw lErr
-
       navigate(`/projects/${proj.id}`)
     } catch (err) {
       alert("Error saving: " + err.message)
@@ -179,123 +162,101 @@ export default function InternalEstimator() {
   }
 
   return (
-    <div className="flex flex-col md:flex-row gap-6 md:h-[calc(100vh-140px)]">
-      
+    <div className="flex flex-col md:flex-row gap-6 h-[calc(100vh-140px)]">
       {/* CHAT PANEL */}
-      <div className="h-[65vh] md:h-auto flex-1 bg-white rounded-2xl border border-slate-200 flex flex-col overflow-hidden relative shadow-sm">
-        <div className="p-4 bg-slate-50 border-b font-bold flex items-center gap-2 shrink-0">
+      <div className="flex-1 bg-white rounded-2xl border border-slate-200 flex flex-col overflow-hidden shadow-sm">
+        <div className="p-4 bg-slate-50 border-b font-bold flex items-center gap-2 text-slate-800">
           <Bot size={20} className="text-amber-500"/> Scoping Assistant
         </div>
-        
-        <div className="flex-1 overflow-y-auto p-4 space-y-4">
+        <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-slate-50/30">
           {messages.map((m, i) => (
             <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-              <div className={`p-3 rounded-2xl max-w-[85%] ${m.role === 'user' ? 'bg-amber-500 font-medium' : 'bg-white border whitespace-pre-wrap'}`}>
+              <div className={`p-3 rounded-2xl max-w-[85%] ${m.role === 'user' ? 'bg-amber-500 text-slate-900 font-medium rounded-tr-none' : 'bg-white border text-slate-700 rounded-tl-none'}`}>
                 {m.content}
               </div>
             </div>
           ))}
-          {isTyping && (
-             <div className="flex justify-start">
-               <div className="p-3 rounded-2xl bg-slate-100 flex gap-2">
-                 <Loader2 size={16} className="animate-spin text-slate-500" />
-                 <span className="text-sm text-slate-500 font-medium">Analyzing...</span>
-               </div>
-             </div>
-          )}
+          {isTyping && <div className="text-slate-400 text-xs animate-pulse italic">Thinking...</div>}
           <div ref={scrollRef} />
         </div>
-
-        <div className="p-4 border-t bg-white shrink-0">
-          {file && (
-             <div className="flex items-center gap-2 mb-2 bg-slate-50 p-2 rounded-lg border border-slate-200 w-fit">
-                {file.type.includes('audio') || file.name.match(/\.(m4a|mp3|wav|ogg)$/i) ? <Mic size={14} className="text-blue-500"/> : <ImageIcon size={14} className="text-blue-500"/>}
-                <span className="text-xs text-slate-600 truncate max-w-[200px]">{file.name}</span>
-                <button onClick={() => { setFile(null); if(fileInputRef.current) fileInputRef.current.value = ''; }} className="text-slate-400 hover:text-red-500">
-                  <X size={14} />
-                </button>
-             </div>
-          )}
-          <form onSubmit={handleChat} className="flex gap-2 items-end">
-            <button 
-              type="button"
-              onClick={() => fileInputRef.current?.click()}
-              className="p-3 bg-slate-100 text-slate-500 hover:bg-slate-200 rounded-xl transition-colors border border-slate-200 shrink-0"
-              title="Upload Audio or Sketch"
-            >
-              <Paperclip size={20} />
-            </button>
-            <input 
-              type="file" 
-              ref={fileInputRef}
-              className="hidden" 
-              accept="image/*,audio/*,video/mp4" 
-              onChange={(e) => {
-                if (e.target.files?.[0]) setFile(e.target.files[0])
-              }}
-            />
-            <input 
-              className="flex-1 p-3 bg-slate-100 rounded-xl outline-none h-[48px]" 
-              value={input} 
-              onChange={e => setInput(e.target.value)} 
-              placeholder="Describe project or upload a file..." 
-              disabled={isTyping}
-            />
-            <button disabled={isTyping || (!input.trim() && !file)} className="p-3 bg-slate-900 text-white rounded-xl disabled:opacity-50 h-[48px] shrink-0">
-              <Send size={20} />
-            </button>
-          </form>
-        </div>
+        <form onSubmit={handleChat} className="p-4 border-t flex gap-2">
+          <input className="flex-1 p-3 bg-slate-100 rounded-xl outline-none focus:ring-2 focus:ring-amber-500" value={input} onChange={e => setInput(e.target.value)} placeholder="e.g. 400 sqft patio and 100 sqft relevel..." />
+          <button disabled={isTyping} className="p-3 bg-slate-900 text-white rounded-xl disabled:opacity-50 hover:bg-slate-800 transition-colors"><Send size={20} /></button>
+        </form>
       </div>
 
       {/* SIDEBAR */}
-      <div className="w-full md:w-80 shrink-0 bg-slate-900 rounded-2xl p-6 text-white flex flex-col overflow-y-auto shadow-md mb-8 md:mb-0">
-        <h2 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4">Extracted Quote</h2>
-        {evaluatedItems.length > 0 ? (
-          <div className="space-y-4 flex-1 flex flex-col">
+      <div className="w-full md:w-96 bg-slate-900 rounded-2xl p-6 text-white flex flex-col shadow-xl overflow-y-auto">
+        <h2 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2">
+          <Calculator size={14}/> Lead Variables
+        </h2>
+        
+        {lineItems.length > 0 ? (
+          <div className="space-y-6 flex-1 flex flex-col">
             
-            <div className="bg-slate-800 p-4 rounded-xl border border-slate-700">
-              <h3 className="text-[10px] text-amber-500 font-bold uppercase mb-3 flex items-center gap-1"><ListPlus size={12}/> Line Items Found</h3>
-              <div className="space-y-3 mb-4">
-                {evaluatedItems.map((item, idx) => (
-                  <div key={idx} className="flex justify-between items-center border-b border-slate-700 pb-2 last:border-0 last:pb-0">
-                    <div>
-                      <p className="font-bold text-sm text-slate-200">{item.title || item.project_type}</p>
-                      <p className="text-[10px] text-slate-400">{item.sqft} sqft • {item.material_text || 'Standard'}</p>
+            {/* Grand Total */}
+            <div className="bg-amber-500/10 border border-amber-500/20 p-4 rounded-xl">
+              <p className="text-[10px] text-amber-500 font-bold uppercase mb-1">Target Internal Price</p>
+              <p className="text-3xl font-black text-amber-400">${targetInternalPrice.toLocaleString()}</p>
+            </div>
+
+            {/* Line Items List */}
+            <div className="space-y-3">
+              <p className="text-[10px] text-slate-400 uppercase font-bold tracking-widest border-b border-slate-700 pb-1">Project Areas</p>
+              
+              {pricedLineItems.map((item, index) => (
+                <div key={index} className="bg-slate-800 p-3 rounded-xl border border-slate-700">
+                  {editingIndex === index ? (
+                    // EDIT MODE
+                    <div className="space-y-2">
+                      <div className="flex gap-2">
+                        <input className="flex-1 p-2 bg-slate-900 border border-slate-600 rounded text-sm text-white" placeholder="Type (patio, relevel)" value={editForm.project_type || ''} onChange={e => setEditForm({...editForm, project_type: e.target.value})} />
+                        <input type="number" className="w-24 p-2 bg-slate-900 border border-slate-600 rounded text-sm text-white" placeholder="Sqft" value={editForm.sqft || ''} onChange={e => setEditForm({...editForm, sqft: e.target.value})} />
+                      </div>
+                      <input className="w-full p-2 bg-slate-900 border border-slate-600 rounded text-sm text-white" placeholder="Material Code" value={editForm.material_code || ''} onChange={e => setEditForm({...editForm, material_code: e.target.value})} />
+                      <div className="flex justify-end gap-2 pt-2">
+                        <button onClick={() => setEditingIndex(null)} className="p-2 bg-slate-700 rounded hover:bg-slate-600"><X size={16}/></button>
+                        <button onClick={saveEdit} className="p-2 bg-green-600 rounded hover:bg-green-500"><Check size={16}/></button>
+                      </div>
                     </div>
-                    <div className="text-sm font-mono font-bold text-white">${item.price.toLocaleString()}</div>
-                  </div>
-                ))}
-              </div>
-              <div className="pt-3 border-t-2 border-slate-700">
-                 <div className="flex justify-between items-center mb-1">
-                   <span className="text-xs font-bold text-slate-400 uppercase">Subtotal</span>
-                   <span className="text-sm font-black text-white">${grandTotalSub.toLocaleString(undefined, {minimumFractionDigits: 2})}</span>
-                 </div>
-                 <div className="flex justify-between items-center mb-2">
-                   <span className="text-xs font-bold text-slate-400 uppercase">GST (5%)</span>
-                   <span className="text-sm font-black text-white">${grandTotalGST.toLocaleString(undefined, {minimumFractionDigits: 2})}</span>
-                 </div>
-                 <div className="flex justify-between items-center pt-2 border-t border-slate-600">
-                   <span className="text-xs font-bold text-slate-400 uppercase">Grand Total</span>
-                   <span className="text-xl font-black text-amber-400">${grandTotalWithTax.toLocaleString(undefined, {minimumFractionDigits: 2})}</span>
-                 </div>
-              </div>
+                  ) : (
+                    // VIEW MODE
+                    <div>
+                      <div className="flex justify-between items-start mb-2">
+                        <div className="flex-1">
+                          <p className="font-bold text-sm text-amber-400 truncate">{item.title || item.project_type}</p>
+                          <p className="text-xs text-slate-400">{item.sqft} sqft • {item.material_code || 'Standard'}</p>
+                        </div>
+                        {/* Mobile Optimized Edit Button */}
+                        <button onClick={() => startEditing(index, item)} className="text-slate-300 bg-slate-700 hover:bg-slate-600 hover:text-white p-2 rounded flex-shrink-0 ml-2 shadow-sm">
+                          <Edit2 size={16}/>
+                        </button>
+                      </div>
+                      <p className="text-sm font-mono text-slate-300 text-right font-bold">${item.calculatedPrice.toLocaleString()}</p>
+                    </div>
+                  )}
+                </div>
+              ))}
             </div>
 
-            <div className="space-y-2 mt-2">
-              <input placeholder="Name *" className="w-full p-2 bg-slate-800 rounded border-slate-700 text-sm outline-none focus:ring-2 focus:ring-amber-500" value={customerInfo.name} onChange={e => setCustomerInfo({...customerInfo, name: e.target.value})} />
-              <input placeholder="Phone" className="w-full p-2 bg-slate-800 rounded border-slate-700 text-sm outline-none focus:ring-2 focus:ring-amber-500" value={customerInfo.phone} onChange={e => setCustomerInfo({...customerInfo, phone: e.target.value})} />
-              <input placeholder="Email" className="w-full p-2 bg-slate-800 rounded border-slate-700 text-sm outline-none focus:ring-2 focus:ring-amber-500" value={customerInfo.email} onChange={e => setCustomerInfo({...customerInfo, email: e.target.value})} />
-              <input placeholder="Address" className="w-full p-2 bg-slate-800 rounded border-slate-700 text-sm outline-none focus:ring-2 focus:ring-amber-500" value={customerInfo.address} onChange={e => setCustomerInfo({...customerInfo, address: e.target.value})} />
+            {/* Customer Inputs */}
+            <div className="space-y-2 mt-auto pt-4 border-t border-slate-800">
+              <p className="text-[10px] text-slate-400 uppercase font-bold tracking-widest mb-2">Client Details</p>
+              <input placeholder="Name *" className="w-full p-3 bg-slate-800 rounded border border-slate-700 text-sm text-white focus:border-amber-500 focus:outline-none" value={customerInfo.name} onChange={e => setCustomerInfo({...customerInfo, name: e.target.value})} />
+              <input placeholder="Phone" className="w-full p-3 bg-slate-800 rounded border border-slate-700 text-sm text-white focus:border-amber-500 focus:outline-none" value={customerInfo.phone} onChange={e => setCustomerInfo({...customerInfo, phone: e.target.value})} />
+              <input placeholder="Email" className="w-full p-3 bg-slate-800 rounded border border-slate-700 text-sm text-white focus:border-amber-500 focus:outline-none" value={customerInfo.email} onChange={e => setCustomerInfo({...customerInfo, email: e.target.value})} />
             </div>
 
-            <button onClick={handleCreateLead} disabled={isSaving} className="w-full py-4 bg-white hover:bg-slate-200 text-slate-900 font-black rounded-xl mt-4 transition-colors shrink-0">
-              {isSaving ? <Loader2 className="animate-spin mx-auto" /> : <span className="flex items-center justify-center gap-2"><UserPlus size={20} /> Create Lead & Items</span>}
+            <button onClick={handleCreateLead} disabled={isSaving} className="w-full py-4 bg-white text-slate-900 font-black rounded-xl hover:bg-slate-200 transition-colors mt-4 shadow-lg flex items-center justify-center gap-2">
+              {isSaving ? <Loader2 className="animate-spin" /> : <UserPlus size={20} />} 
+              Create Lead File
             </button>
           </div>
         ) : (
-          <div className="flex-1 flex flex-col items-center justify-center opacity-20 min-h-[300px]"><RefreshCw size={40} /></div>
+          <div className="flex-1 flex flex-col items-center justify-center opacity-20">
+            <RefreshCw size={40} className="mb-4" />
+            <p className="text-xs text-center uppercase tracking-widest font-bold">Waiting for project details...</p>
+          </div>
         )}
       </div>
     </div>
