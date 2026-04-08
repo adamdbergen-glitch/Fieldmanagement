@@ -57,7 +57,7 @@ export function getMaterialPricePerSqft(code) {
 export function getLabourRatePerSqft(project_type, totalSqft) {
   // Adjusted Winnipeg Labour Tiers (Installation Wages + Overhead)
   let base;
-  if (totalSqft < 150) base = 32;      
+  if (totalSqft < 150) base = 32;      // Bumped up slightly for small jobs
   else if (totalSqft < 300) base = 22;
   else if (totalSqft < 500) base = 19;
   else if (totalSqft < 750) base = 17;
@@ -65,7 +65,7 @@ export function getLabourRatePerSqft(project_type, totalSqft) {
   else base = 13;
 
   if (project_type === "walkway") base *= 1.10; // +10%
-  if (project_type === "driveway") base *= 1.30; // +30%
+  if (project_type === "driveway") base *= 1.30; // +30% (More dig out)
 
   return base * LABOUR_BUMP;
 }
@@ -84,17 +84,19 @@ export function calculatePavingEstimate({
   // 1. Calculate Base Labour Rate
   let labourRate = getLabourRatePerSqft(project_type, totalSqft);
 
-  // 2. Add Modifiers
+  // 2. Add Modifiers (Additive is safer than compounding)
   let accessMultiplier = 1.0;
-  if (access_level === "medium") accessMultiplier += 0.05;     
-  if (access_level === "difficult") accessMultiplier += 0.15;  
-  if (anyBackyard) accessMultiplier += 0.10;                   
-  if (is_out_of_town) accessMultiplier += 0.10;                
+  if (access_level === "medium") accessMultiplier += 0.05;     // +5%
+  if (access_level === "difficult") accessMultiplier += 0.15;  // +15%
+  if (anyBackyard) accessMultiplier += 0.10;                   // +10%
+  if (is_out_of_town) accessMultiplier += 0.10;                // +10%
   
   // 3. Material Costs
   const paverPrice = getMaterialPricePerSqft(material_code);
   
   // 4. THE FORMULA
+  // Total = ((Labour + Base Prep) * Access Multiplier) + Pavers
+  // This ensures difficult access penalizes the base prep hauling as well.
   let costPerSqFt = (labourRate + BASE_PREP_COST) * accessMultiplier + paverPrice;
   let subtotal = costPerSqFt * totalSqft;
 
@@ -115,26 +117,12 @@ export function calculatePavingEstimate({
     cushioned_price: Math.round(cushioned),
     low,
     high,
+    // Adds a visual flag if the minimum job threshold was triggered
     details: `${Math.round(totalSqft)} sqft ${project_type} using ${material_code}. Est: $${(cushioned/totalSqft).toFixed(2)}/sqft avg. ${isMinJob ? "(MINIMUM JOB APPLIED)" : ""}`,
   };
 }
 
-// --- NEW RE-LEVELING LOGIC (Square Feet) ---
-
-const RELEVEL_TIERS = {
-  small:    { max: 150, rate: 16.50 },     
-  standard: { max: 450, rate: 12.50 },     
-  large:    { max: 900, rate: 10.50 },     
-  volume:   { max: Infinity, rate: 9.00 } 
-};
-
-function getRelevelBaseRate(totalSqft) {
-  if (totalSqft < RELEVEL_TIERS.small.max) return RELEVEL_TIERS.small.rate;
-  if (totalSqft < RELEVEL_TIERS.standard.max) return RELEVEL_TIERS.standard.rate;
-  if (totalSqft < RELEVEL_TIERS.large.max) return RELEVEL_TIERS.large.rate;
-  return RELEVEL_TIERS.volume.rate;
-}
-
+// --- NEW FUNCTION ADDED HERE ---
 export function calculateRelevelEstimate({
   areas,
   needsEdging,
@@ -142,33 +130,39 @@ export function calculateRelevelEstimate({
   isOutOfTown
 }) {
   const totalSqft = (areas || []).reduce((sum, a) => sum + (a.square_feet || 0), 0);
-  let rate = getRelevelBaseRate(totalSqft);
+  
+  // Base labour for lift, re-bed, and relay
+  let baseRate = 12.00; 
 
-  if (needsEdging) rate += 1.50;     
-  if (isPoorCondition) rate += 3.00; 
-  if (isOutOfTown) rate += 1.00;     
+  if (isPoorCondition) baseRate += 4.00; // Extra base prep/cleaning needed
+  if (needsEdging) baseRate += 2.50; // New spikes/edge restraints
 
-  let subtotal = rate * totalSqft;
+  let subtotal = baseRate * totalSqft;
 
-  if (subtotal < MIN_JOB) {
-    subtotal = MIN_JOB;
-  }
+  if (isOutOfTown) subtotal *= 1.10; // 10% out of town fee
+
+  // Enforce the minimum job fee
+  const isMinJob = subtotal < MIN_JOB;
+  if (isMinJob) subtotal = MIN_JOB;
 
   const cushioned = subtotal * CHATBOT_CUSHION;
+  const low = Math.round(cushioned * 0.90);
+  const high = Math.round(cushioned * 1.10);
 
   return {
     currency: "CAD",
     exact_price: Math.round(subtotal),
     cushioned_price: Math.round(cushioned),
-    low: Math.round(cushioned * 0.95),
-    high: Math.round(cushioned * 1.05),
-    details: `Re-leveling ${Math.round(totalSqft)} sqft. Est: $${(cushioned / totalSqft).toFixed(2)}/sqft avg.`,
+    low,
+    high,
+    details: `${Math.round(totalSqft)} sqft Re-leveling. Est: $${(cushioned/totalSqft).toFixed(2)}/sqft avg. ${isMinJob ? "(MINIMUM JOB APPLIED)" : ""}`
   };
 }
 
 export function inferMaterialCodeFromText(text) {
   const t = (text || "").toLowerCase();
   
+  // Specific Product Logic (Now includes the missing premium/midrange lines)
   if (t.includes("navarro")) return "barkman_navarro";
   if (t.includes("fjord")) return "barkman_fjord";
   if (t.includes("arborwood")) return "barkman_arborwood";
@@ -183,7 +177,8 @@ export function inferMaterialCodeFromText(text) {
   if (t.includes("blu")) return "techo_blu_60_slate";
   if (t.includes("grand") || t.includes("slab")) return "barkman_lexington_slab";
 
+  // Defaults
   if (t.includes("premium") || t.includes("high end")) return "barkman_broadway_65";
   
-  return "barkman_holland"; 
+  return "barkman_holland"; // Default fallback
 }

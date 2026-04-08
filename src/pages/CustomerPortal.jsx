@@ -69,13 +69,21 @@ export default function CustomerPortal() {
       if (!data || data.length === 0) return null
       
       let proj = data[0]
+      
+      // 1. Try fetching from the customers table (Fails if Supabase RLS blocks public access)
       if (!proj.customer_name && proj.customer_id) {
-        const { data: custData } = await supabase.from('customers').select('name, email').eq('id', proj.customer_id).single()
+        const { data: custData, error: custError } = await supabase.from('customers').select('name, email').eq('id', proj.customer_id).single()
         if (custData) {
           proj.customer_name = custData.name
           proj.customer_email = custData.email
         }
       }
+
+      // 2. ULTIMATE FALLBACK: If Supabase blocked the query, but this is an AI lead, extract the name from the title!
+      if (!proj.customer_name && proj.name && proj.name.startsWith("Lead: ")) {
+        proj.customer_name = proj.name.replace("Lead: ", "").trim();
+      }
+
       return proj
     }
   })

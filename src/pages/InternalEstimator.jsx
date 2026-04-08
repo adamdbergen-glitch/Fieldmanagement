@@ -4,7 +4,7 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { can } from '../lib/permissions'
 import { calculatePavingEstimate, calculateRelevelEstimate } from '../lib/pricing' 
-import { Send, Bot, UserPlus, Loader2, RefreshCw, Paperclip, X, Image as ImageIcon, Mic, ListPlus } from 'lucide-react'
+import { Send, Bot, UserPlus, Loader2, RefreshCw, Paperclip, X, Image as ImageIcon, Mic, ListPlus, Calculator, Pencil, Check } from 'lucide-react'
 
 export default function InternalEstimator() {
   const navigate = useNavigate()
@@ -23,42 +23,39 @@ export default function InternalEstimator() {
   const [isSaving, setIsSaving] = useState(false)
   const [customerInfo, setCustomerInfo] = useState({ name: '', phone: '', email: '', address: '' })
 
+  // Editing State for Line Items on Mobile
+  const [editingIndex, setEditingIndex] = useState(null)
+  const [editForm, setEditForm] = useState({})
+
   useEffect(() => { scrollRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages])
 
   if (!can(userProfile?.role, ['admin'])) {
     return <div className="p-10 text-center font-bold text-slate-500">Admin Access Only</div>
   }
 
+  // --- MATH CALCULATION ---
   const evaluatedItems = extractedLineItems.map(item => {
-    // 1. If it's a custom item, skip the pricing engine and default to $0
-    if (item.project_type === "other" || !item.project_type) {
-      return { ...item, price: 0 }
-    }
-
-    // 2. If it's standard paving/releveling, do the math!
     if (item.sqft > 0) {
-      let est;
-      
-      if (item.project_type === "relevel") {
-        est = calculateRelevelEstimate({
-          areas: [{ square_feet: Number(item.sqft) }],
-          needsEdging: !!item.needs_edging,
-          isPoorCondition: !!item.is_poor_condition,
-          isOutOfTown: false 
-        })
+      if (item.project_type === 'relevel') {
+         const est = calculateRelevelEstimate({
+           areas: [{ square_feet: Number(item.sqft) }],
+           needsEdging: !!item.needs_edging,
+           isPoorCondition: !!item.is_poor_condition,
+           isOutOfTown: extractedMeta?.is_out_of_town || false
+         });
+         return { ...item, price: est ? est.exact_price : 0 };
       } else {
-        est = calculatePavingEstimate({
-            project_type: item.project_type,
-            areas: [{ square_feet: Number(item.sqft), is_backyard: !!item.is_backyard }],
-            access_level: extractedMeta?.access_level || "medium",
-            material_code: item.material_code
-        })
+         const est = calculatePavingEstimate({
+             project_type: item.project_type || 'patio',
+             areas: [{ square_feet: Number(item.sqft), is_backyard: !!item.is_backyard }],
+             access_level: extractedMeta?.access_level || "medium",
+             material_code: item.material_code || 'barkman_holland',
+             city_town: extractedMeta?.city_town || 'Winnipeg',
+             is_out_of_town: extractedMeta?.is_out_of_town || false
+         });
+         return { ...item, price: est ? est.exact_price : 0 };
       }
-      
-      return { ...item, price: est.exact_price }
     }
-    
-    // Fallback
     return { ...item, price: 0 }
   })
 
@@ -66,6 +63,7 @@ export default function InternalEstimator() {
   const grandTotalGST = grandTotalSub * 0.05
   const grandTotalWithTax = grandTotalSub + grandTotalGST
 
+  // --- CHAT LOGIC ---
   const handleChat = async (e) => {
     e.preventDefault()
     if (!input.trim() && !file) return
@@ -133,6 +131,20 @@ export default function InternalEstimator() {
     }
   }
 
+  // --- EDIT HANDLERS ---
+  const startEditing = (index, item) => {
+    setEditingIndex(index);
+    setEditForm({ ...item });
+  }
+
+  const saveEdit = () => {
+    const updatedItems = [...extractedLineItems];
+    updatedItems[editingIndex] = { ...editForm, sqft: Number(editForm.sqft) || 0 };
+    setExtractedLineItems(updatedItems);
+    setEditingIndex(null);
+  }
+
+  // --- CREATE LEAD LOGIC ---
   const handleCreateLead = async () => {
     if (evaluatedItems.length === 0) return alert("No items to quote!")
     if (!customerInfo.name.trim()) return alert("Enter a customer name.")
@@ -142,6 +154,7 @@ export default function InternalEstimator() {
       let finalCustomerId = null;
       let matchFound = false;
 
+      // Smart logic to find existing customer or create a new one
       if (customerInfo.email && customerInfo.email.trim() !== '') {
         const { data } = await supabase.from('customers').select('id').eq('email', customerInfo.email.trim()).limit(1);
         if (data && data.length > 0) { finalCustomerId = data[0].id; matchFound = true; }
@@ -177,10 +190,11 @@ export default function InternalEstimator() {
 
       if (pErr) throw pErr
 
+      // Insert Line Items into Database
       const linesToInsert = evaluatedItems.map(item => ({
         project_id: proj.id,
         title: item.title || `${item.sqft} sqft ${item.project_type}`,
-        description: `Size: ${item.sqft} sqft | Material: ${item.material_text || 'Standard'}`,
+        description: `Size: ${item.sqft} sqft | Material: ${item.material_text || item.material_code || 'Standard'}`,
         price: item.price,
         status: 'pending',
         is_change_order: false
@@ -206,17 +220,17 @@ export default function InternalEstimator() {
           <Bot size={20} className="text-amber-500"/> Scoping Assistant
         </div>
         
-        <div className="flex-1 overflow-y-auto p-4 space-y-4">
+        <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-slate-50/30">
           {messages.map((m, i) => (
             <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-              <div className={`p-3 rounded-2xl max-w-[85%] ${m.role === 'user' ? 'bg-amber-500 font-medium' : 'bg-white border whitespace-pre-wrap'}`}>
+              <div className={`p-3 rounded-2xl max-w-[85%] ${m.role === 'user' ? 'bg-amber-500 text-slate-900 font-medium rounded-tr-none' : 'bg-white border text-slate-700 rounded-tl-none whitespace-pre-wrap'}`}>
                 {m.content}
               </div>
             </div>
           ))}
           {isTyping && (
              <div className="flex justify-start">
-               <div className="p-3 rounded-2xl bg-slate-100 flex gap-2">
+               <div className="p-3 rounded-2xl bg-slate-100 flex gap-2 items-center">
                  <Loader2 size={16} className="animate-spin text-slate-500" />
                  <span className="text-sm text-slate-500 font-medium">Analyzing...</span>
                </div>
@@ -254,13 +268,13 @@ export default function InternalEstimator() {
               }}
             />
             <input 
-              className="flex-1 p-3 bg-slate-100 rounded-xl outline-none h-[48px]" 
+              className="flex-1 p-3 bg-slate-100 rounded-xl outline-none focus:ring-2 focus:ring-amber-500 h-[48px]" 
               value={input} 
               onChange={e => setInput(e.target.value)} 
               placeholder="Describe project or upload a file..." 
               disabled={isTyping}
             />
-            <button disabled={isTyping || (!input.trim() && !file)} className="p-3 bg-slate-900 text-white rounded-xl disabled:opacity-50 h-[48px] shrink-0">
+            <button disabled={isTyping || (!input.trim() && !file)} className="p-3 bg-slate-900 text-white rounded-xl disabled:opacity-50 h-[48px] shrink-0 hover:bg-slate-800 transition-colors">
               <Send size={20} />
             </button>
           </form>
@@ -268,24 +282,53 @@ export default function InternalEstimator() {
       </div>
 
       {/* SIDEBAR */}
-      <div className="w-full md:w-80 shrink-0 bg-slate-900 rounded-2xl p-6 text-white flex flex-col overflow-y-auto shadow-md mb-8 md:mb-0">
-        <h2 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4">Extracted Quote</h2>
+      <div className="w-full md:w-96 shrink-0 bg-slate-900 rounded-2xl p-6 text-white flex flex-col overflow-y-auto shadow-md mb-8 md:mb-0">
+        <h2 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2">
+          <Calculator size={14}/> Extracted Quote
+        </h2>
+        
         {evaluatedItems.length > 0 ? (
           <div className="space-y-4 flex-1 flex flex-col">
             
             <div className="bg-slate-800 p-4 rounded-xl border border-slate-700">
               <h3 className="text-[10px] text-amber-500 font-bold uppercase mb-3 flex items-center gap-1"><ListPlus size={12}/> Line Items Found</h3>
+              
               <div className="space-y-3 mb-4">
-                {evaluatedItems.map((item, idx) => (
-                  <div key={idx} className="flex justify-between items-center border-b border-slate-700 pb-2 last:border-0 last:pb-0">
-                    <div>
-                      <p className="font-bold text-sm text-slate-200">{item.title || item.project_type}</p>
-                      <p className="text-[10px] text-slate-400">{item.sqft} sqft • {item.material_text || 'Standard'}</p>
-                    </div>
-                    <div className="text-sm font-mono font-bold text-white">${item.price.toLocaleString()}</div>
+                {evaluatedItems.map((item, index) => (
+                  <div key={index} className="border-b border-slate-700 pb-2 last:border-0 last:pb-0">
+                    {editingIndex === index ? (
+                      // EDIT MODE
+                      <div className="space-y-2 mt-2">
+                        <div className="flex gap-2">
+                          <input className="flex-1 p-2 bg-slate-900 border border-slate-600 rounded text-sm text-white" placeholder="Type (patio, relevel)" value={editForm.project_type || ''} onChange={e => setEditForm({...editForm, project_type: e.target.value})} />
+                          <input type="number" className="w-24 p-2 bg-slate-900 border border-slate-600 rounded text-sm text-white" placeholder="Sqft" value={editForm.sqft || ''} onChange={e => setEditForm({...editForm, sqft: e.target.value})} />
+                        </div>
+                        <input className="w-full p-2 bg-slate-900 border border-slate-600 rounded text-sm text-white" placeholder="Material Code" value={editForm.material_code || ''} onChange={e => setEditForm({...editForm, material_code: e.target.value})} />
+                        <div className="flex justify-end gap-2 pt-2">
+                          <button onClick={() => setEditingIndex(null)} className="p-2 bg-slate-700 rounded hover:bg-slate-600"><X size={16}/></button>
+                          <button onClick={saveEdit} className="p-2 bg-green-600 rounded hover:bg-green-500"><Check size={16}/></button>
+                        </div>
+                      </div>
+                    ) : (
+                      // VIEW MODE
+                      <div className="flex justify-between items-start">
+                        <div className="flex-1">
+                          <p className="font-bold text-sm text-slate-200 truncate">{item.title || item.project_type}</p>
+                          <p className="text-[10px] text-slate-400">{item.sqft} sqft • {item.material_code || 'Standard'}</p>
+                        </div>
+                        <div className="flex items-center gap-3">
+                           <div className="text-sm font-mono font-bold text-white">${item.price.toLocaleString()}</div>
+                           <button onClick={() => startEditing(index, item)} className="text-slate-300 bg-slate-700 hover:bg-slate-600 hover:text-white p-2 rounded flex-shrink-0 shadow-sm">
+                             <Pencil size={14}/>
+                           </button>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
+
+              {/* Math Display */}
               <div className="pt-3 border-t-2 border-slate-700">
                  <div className="flex justify-between items-center mb-1">
                    <span className="text-xs font-bold text-slate-400 uppercase">Subtotal</span>
@@ -302,6 +345,7 @@ export default function InternalEstimator() {
               </div>
             </div>
 
+            {/* Customer Inputs */}
             <div className="space-y-2 mt-2">
               <input placeholder="Name *" className="w-full p-2 bg-slate-800 rounded border-slate-700 text-sm outline-none focus:ring-2 focus:ring-amber-500" value={customerInfo.name} onChange={e => setCustomerInfo({...customerInfo, name: e.target.value})} />
               <input placeholder="Phone" className="w-full p-2 bg-slate-800 rounded border-slate-700 text-sm outline-none focus:ring-2 focus:ring-amber-500" value={customerInfo.phone} onChange={e => setCustomerInfo({...customerInfo, phone: e.target.value})} />
@@ -314,7 +358,10 @@ export default function InternalEstimator() {
             </button>
           </div>
         ) : (
-          <div className="flex-1 flex flex-col items-center justify-center opacity-20 min-h-[300px]"><RefreshCw size={40} /></div>
+          <div className="flex-1 flex flex-col items-center justify-center opacity-20 min-h-[300px]">
+            <RefreshCw size={40} className="mb-2" />
+            <p className="text-xs text-center uppercase tracking-widest font-bold">Waiting for project details...</p>
+          </div>
         )}
       </div>
     </div>
