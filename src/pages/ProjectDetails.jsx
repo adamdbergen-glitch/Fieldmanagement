@@ -6,7 +6,7 @@ import {
   ArrowLeft, MapPin, Clock, Phone, Navigation, 
   ShieldAlert, ListChecks, Truck, Info, Calendar,
   MessageSquare, Link as LinkIcon, Check, Edit2, Save, X, 
-  DollarSign, Receipt, Plus, Trash2, Send, MailQuestion, ListPlus
+  DollarSign, Receipt, Plus, Trash2, Send, MailQuestion, ListPlus, Loader2
 } from 'lucide-react'
 import { format, parseISO, differenceInMinutes } from 'date-fns'
 import ProjectSOPs from '../components/ProjectSOPs'
@@ -36,6 +36,10 @@ export default function ProjectDetails() {
   
   const [isSendingEstimate, setIsSendingEstimate] = useState(false)
   const [isSendingFollowup, setIsSendingFollowup] = useState(false)
+
+  // --- NEW EMAIL MODAL STATE ---
+  const [showEmailModal, setShowEmailModal] = useState(false)
+  const [emailDraft, setEmailDraft] = useState({ subject: '', message: '' })
 
   const [newExpense, setNewExpense] = useState({ description: '', amount: '' })
   const [isSubmittingExpense, setIsSubmittingExpense] = useState(false)
@@ -264,9 +268,19 @@ export default function ProjectDetails() {
     else navigate('/projects')
   }
 
-  const handleSendEstimateEmail = async (e) => {
+  // --- NEW: Handle opening the Email Modal ---
+  const handleOpenEmailModal = (e) => {
     e?.preventDefault();
     if (!project.customer?.email) return alert("This customer doesn't have an email address on file!")
+    setEmailDraft({ 
+      subject: `Your Project Estimate: ${project.name}`, 
+      message: '' 
+    })
+    setShowEmailModal(true)
+  }
+
+  // --- NEW: Handle actually sending the customized Email ---
+  const handleConfirmSendEmail = async () => {
     setIsSendingEstimate(true)
     try {
       const res = await fetch('https://pavingstone-chatbot.onrender.com/api/send-estimate', {
@@ -277,11 +291,14 @@ export default function ProjectDetails() {
           customerName: project.customer.name,
           projectName: project.name,
           estimateAmount: calculatedEstimate, 
-          portalLink: `${window.location.origin}/portal/${project.access_token}`
+          portalLink: `${window.location.origin}/portal/${project.access_token}`,
+          customSubject: emailDraft.subject,
+          customMessage: emailDraft.message
         })
       })
       if (!res.ok) throw new Error("Failed to send")
       alert("Estimate sent successfully!")
+      setShowEmailModal(false)
     } catch (err) { alert(err.message) } 
     finally { setIsSendingEstimate(false) }
   }
@@ -564,7 +581,8 @@ export default function ProjectDetails() {
                   
                   {isAdmin && (
                     <div className="space-y-2">
-                      <button type="button" onClick={handleSendEstimateEmail} disabled={isSendingEstimate || calculatedEstimate <= 0} className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold py-2 rounded-lg flex items-center justify-center gap-2 transition-colors disabled:opacity-50">
+                      {/* --- UPDATED BUTTON --- */}
+                      <button type="button" onClick={handleOpenEmailModal} disabled={isSendingEstimate || calculatedEstimate <= 0} className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold py-2 rounded-lg flex items-center justify-center gap-2 transition-colors disabled:opacity-50">
                         {isSendingEstimate ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
                         Email Estimate to Client
                       </button>
@@ -616,7 +634,7 @@ export default function ProjectDetails() {
               </div>
               <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
                 <h3 className="font-bold text-lg mb-4 flex items-center gap-2"><Receipt size={20} /> Expense Log</h3>
-               <form onSubmit={handleAddExpense} className="flex flex-col md:flex-row gap-3 mb-6 bg-slate-50 p-4 rounded-lg border border-slate-100">
+                <form onSubmit={handleAddExpense} className="flex flex-col md:flex-row gap-3 mb-6 bg-slate-50 p-4 rounded-lg border border-slate-100">
                   <input className="flex-1 p-2 border rounded text-sm" placeholder="Item (e.g. Gas, Gravel)" value={newExpense.description} onChange={e => setNewExpense({...newExpense, description: e.target.value})} />
                   <input type="number" className="w-32 p-2 border rounded text-sm" placeholder="Cost ($)" value={newExpense.amount} onChange={e => setNewExpense({...newExpense, amount: e.target.value})} />
                   <button disabled={isSubmittingExpense} className="bg-slate-900 text-white px-4 py-2 rounded font-bold text-sm flex items-center justify-center gap-1 hover:bg-slate-800"><Plus size={16} /> Add</button>
@@ -642,6 +660,50 @@ export default function ProjectDetails() {
           {activeTab === 'sops' && <div className="animate-in fade-in slide-in-from-bottom-2 bg-white rounded-xl shadow-sm border border-slate-200 p-1 md:p-6"><ProjectSOPs projectId={id} /></div>}
           {activeTab === 'materials' && <div className="animate-in fade-in slide-in-from-bottom-2 bg-white rounded-xl shadow-sm border border-slate-200 p-1 md:p-6"><ProjectMaterials projectId={id} /></div>}
           {activeTab === 'comments' && <div className="animate-in fade-in slide-in-from-bottom-2 bg-white rounded-xl shadow-sm border border-slate-200 p-4 md:p-6"><ProjectComments projectId={id} /></div>}
+        </div>
+      )}
+
+      {/* --- NEW EMAIL COMPOSER MODAL --- */}
+      {showEmailModal && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg overflow-hidden animate-in zoom-in-95 duration-200">
+            <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+              <h3 className="font-bold text-lg text-slate-800 flex items-center gap-2"><Send size={18} className="text-amber-500"/> Draft Email</h3>
+              <button onClick={() => setShowEmailModal(false)} className="text-slate-400 hover:text-slate-700 transition-colors">
+                <X size={20} />
+              </button>
+            </div>
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">To</label>
+                <input disabled className="w-full p-2 border border-slate-200 rounded bg-slate-50 text-slate-500 cursor-not-allowed text-sm" value={project.customer?.email} />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Subject</label>
+                <input 
+                  className="w-full p-2 border border-slate-300 rounded focus:ring-2 focus:ring-amber-500 outline-none text-sm" 
+                  value={emailDraft.subject} 
+                  onChange={e => setEmailDraft({...emailDraft, subject: e.target.value})} 
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Custom Message / Links</label>
+                <textarea 
+                  className="w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-amber-500 outline-none text-sm min-h-[120px]" 
+                  placeholder="e.g. Here is a link to the Barkman catalog: https://barkmanconcrete.com/..."
+                  value={emailDraft.message} 
+                  onChange={e => setEmailDraft({...emailDraft, message: e.target.value})} 
+                />
+                <p className="text-[10px] text-slate-400 mt-1">This text will be highlighted in a yellow box inside the standard estimate email template.</p>
+              </div>
+            </div>
+            <div className="p-4 border-t border-slate-100 bg-slate-50 flex justify-end gap-3">
+              <button onClick={() => setShowEmailModal(false)} className="px-4 py-2 bg-white border border-slate-300 text-slate-700 font-bold rounded-lg hover:bg-slate-100 transition-colors">Cancel</button>
+              <button onClick={handleConfirmSendEmail} disabled={isSendingEstimate} className="px-6 py-2 bg-slate-900 text-white font-bold rounded-lg hover:bg-slate-800 transition-colors flex items-center gap-2">
+                 {isSendingEstimate ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />} Send Now
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>
