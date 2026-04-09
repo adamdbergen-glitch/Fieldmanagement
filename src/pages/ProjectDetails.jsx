@@ -27,6 +27,9 @@ export default function ProjectDetails() {
   const userRole = userProfile?.role || 'crew'
   const isAdmin = userRole === 'admin'
 
+  // --- ⚠️ CHANGE THIS TO YOUR ACTUAL VERCEL / LIVE WEBSITE URL ⚠️ ---
+  const LIVE_WEB_URL = "https://app.pavingstone.pro" 
+
   const [activeTab, setActiveTab] = useState('overview')
   const [linkCopied, setLinkCopied] = useState(false)
   const [isEditing, setIsEditing] = useState(false)
@@ -248,8 +251,9 @@ export default function ProjectDetails() {
     return `http://googleusercontent.com/maps.google.com/search?q=${encodeURIComponent(fullAddress)}`
   }
 
+  // --- ADDED /# TO URL ---
   const copyPortalLink = () => {
-    const url = `${window.location.origin}/portal/${project.access_token}`
+    const url = `${LIVE_WEB_URL}/#/portal/${project.access_token}`
     navigator.clipboard.writeText(url)
     setLinkCopied(true)
     setTimeout(() => setLinkCopied(false), 2000)
@@ -279,7 +283,7 @@ export default function ProjectDetails() {
     setShowEmailModal(true)
   }
 
-  // --- NEW: Handle actually sending the customized Email ---
+  // --- ADDED /# TO URL ---
   const handleConfirmSendEmail = async () => {
     setIsSendingEstimate(true)
     try {
@@ -291,7 +295,7 @@ export default function ProjectDetails() {
           customerName: project.customer.name,
           projectName: project.name,
           estimateAmount: calculatedEstimate, 
-          portalLink: `${window.location.origin}/portal/${project.access_token}`,
+          portalLink: `${LIVE_WEB_URL}/#/portal/${project.access_token}`,
           customSubject: emailDraft.subject,
           customMessage: emailDraft.message
         })
@@ -303,6 +307,7 @@ export default function ProjectDetails() {
     finally { setIsSendingEstimate(false) }
   }
 
+  // --- ADDED /# TO URL ---
   const handleSendFollowupEmail = async (e) => {
     e?.preventDefault();
     if (!project.customer?.email) return alert("This customer doesn't have an email address on file!")
@@ -315,7 +320,7 @@ export default function ProjectDetails() {
           customerEmail: project.customer.email,
           customerName: project.customer.name,
           projectName: project.name,
-          portalLink: `${window.location.origin}/portal/${project.access_token}`
+          portalLink: `${LIVE_WEB_URL}/#/portal/${project.access_token}`
         })
       })
       if (!res.ok) throw new Error("Failed to send")
@@ -572,7 +577,7 @@ export default function ProjectDetails() {
                   <p className="text-amber-100 text-xs mb-4">Share this link with the client.</p>
                   <div className="flex gap-2 mb-4">
                     <div className="flex-1 bg-black/10 rounded px-3 py-2 text-xs font-mono text-amber-100 truncate border border-white/10">
-                      {project.access_token ? `${window.location.origin}/portal/${project.access_token}` : "Generating..."}
+                      {project.access_token ? `${LIVE_WEB_URL}/#/portal/${project.access_token}` : "Generating..."}
                     </div>
                     <button onClick={copyPortalLink} className="bg-white text-amber-600 px-3 py-2 rounded font-bold text-xs">
                       {linkCopied ? <Check size={14} /> : <LinkIcon size={14} />}
