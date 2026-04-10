@@ -84,6 +84,10 @@ export default function CustomerPortal() {
         proj.customer_name = proj.name.replace("Lead: ", "").trim();
       }
 
+      // ---> HERE IS THE NEW TRACKER FIRE <---
+      // Fire the tracker in the background without making the user wait
+      supabase.rpc('log_portal_view', { p_token: token }).then()
+
       return proj
     }
   })
