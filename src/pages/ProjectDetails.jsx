@@ -6,7 +6,7 @@ import {
   ArrowLeft, MapPin, Clock, Phone, Navigation, 
   ShieldAlert, ListChecks, Truck, Info, Calendar,
   MessageSquare, Link as LinkIcon, Check, Edit2, Save, X, 
-  DollarSign, Receipt, Plus, Trash2, Send, MailQuestion, ListPlus, Loader2
+  DollarSign, Receipt, Plus, Trash2, Send, MailQuestion, ListPlus, Loader2, Eye
 } from 'lucide-react'
 import { format, parseISO, differenceInMinutes } from 'date-fns'
 import ProjectSOPs from '../components/ProjectSOPs'
@@ -586,6 +586,12 @@ export default function ProjectDetails() {
                   
                   {isAdmin && (
                     <div className="space-y-2">
+                      {/* --- NEW TRACKER STATS BOX --- */}
+                      <div className="flex justify-between items-center mb-4 bg-black/10 rounded-lg p-3 text-xs font-bold shadow-inner border border-white/5">
+                        <span className="flex items-center gap-1.5"><Eye size={14} className="text-amber-200" /> Views: {project.view_count || 0}</span>
+                        <span className="flex items-center gap-1.5"><Clock size={14} className="text-amber-200" /> Last: {project.last_viewed_at ? format(parseISO(project.last_viewed_at), 'MMM d, h:mm a') : 'Never'}</span>
+                      </div>
+
                       {/* --- UPDATED BUTTON --- */}
                       <button type="button" onClick={handleOpenEmailModal} disabled={isSendingEstimate || calculatedEstimate <= 0} className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold py-2 rounded-lg flex items-center justify-center gap-2 transition-colors disabled:opacity-50">
                         {isSendingEstimate ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
