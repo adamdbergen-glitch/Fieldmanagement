@@ -598,62 +598,62 @@ export default function CustomerPortal() {
               </button>
             </div>
 
+            {/* NEW: Combined Contract Text and Signature into the same scrolling container */}
             <div className="p-4 md:p-10 overflow-y-auto flex-1 bg-slate-50/50">
-              <div className="max-w-2xl mx-auto">
-                <div className="prose prose-slate max-w-none text-slate-700 font-medium whitespace-pre-wrap leading-relaxed bg-white p-8 md:p-12 rounded-3xl border border-slate-200 shadow-sm text-base md:text-lg">
+              <div className="max-w-2xl mx-auto space-y-6">
+                
+                <div className="prose prose-slate max-w-none text-slate-700 font-medium whitespace-pre-wrap leading-relaxed bg-white p-6 md:p-12 rounded-3xl border border-slate-200 shadow-sm text-base md:text-lg">
                   <div className="font-serif italic text-slate-500 mb-8 border-b pb-4">
                     Agreement for: {project.name}
                   </div>
                   {CONTRACT_TERMS}
                 </div>
-              </div>
-            </div>
 
-            <div className="p-6 md:p-8 border-t border-slate-100 bg-white shrink-0">
-              <div className="max-w-2xl mx-auto">
-                
-                <div className="mb-6 bg-amber-50 border border-amber-200 rounded-xl p-4 flex gap-3 items-start shadow-sm">
-                  <div className="w-8 h-8 rounded-full bg-amber-100 flex items-center justify-center shrink-0">
-                    <DollarSign size={16} className="text-amber-600" />
-                  </div>
-                  <div>
-                    <p className="text-sm font-bold text-slate-800">Deposit Reminder</p>
-                    <p className="text-xs text-slate-600 mt-1">
-                      As per section 4.1 of the contract, a <strong>$500 non-refundable deposit</strong> is required to secure your spot on the schedule.
-                    </p>
-                    <div className="mt-3 text-xs font-medium text-slate-700 space-y-1.5">
-                      <p>✅ <strong>E-Transfer:</strong> Please send to <a href="mailto:adam@pavingstone.pro" className="text-blue-600 font-bold hover:underline">adam@pavingstone.pro</a> (No password required)</p>
-                      <p>✅ <strong>Other Methods:</strong> We also accept Cash or Cheque.</p>
+                <div className="bg-white p-6 md:p-8 rounded-3xl border border-slate-200 shadow-sm">
+                  <div className="mb-6 bg-amber-50 border border-amber-200 rounded-xl p-4 flex gap-3 items-start shadow-sm">
+                    <div className="w-8 h-8 rounded-full bg-amber-100 flex items-center justify-center shrink-0">
+                      <DollarSign size={16} className="text-amber-600" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-bold text-slate-800">Deposit Reminder</p>
+                      <p className="text-xs text-slate-600 mt-1">
+                        As per section 4.1 of the contract, a <strong>$500 non-refundable deposit</strong> is required to secure your spot on the schedule.
+                      </p>
+                      <div className="mt-3 text-xs font-medium text-slate-700 space-y-1.5">
+                        <p>✅ <strong>E-Transfer:</strong> Please send to <a href="mailto:adam@pavingstone.pro" className="text-blue-600 font-bold hover:underline">adam@pavingstone.pro</a> (No password required)</p>
+                        <p>✅ <strong>Other Methods:</strong> We also accept Cash or Cheque.</p>
+                      </div>
                     </div>
                   </div>
-                </div>
 
-                <div className="flex flex-col md:flex-row md:items-end justify-between mb-4 border-t border-slate-200 pt-4 gap-4">
-                  <div className="flex-1">
-                    <label className="block text-sm font-bold text-slate-800">9. CUSTOMER AUTHORIZATION</label>
-                    <p className="text-xs text-slate-500 mb-2">By typing your full name below, you authorize construction.</p>
-                    <input 
-                      type="text" 
-                      placeholder="Type your full legal name to sign..." 
-                      className="w-full p-4 border-2 border-slate-200 rounded-xl focus:border-green-500 focus:ring-4 focus:ring-green-500/20 outline-none font-bold text-slate-900 font-serif"
-                      value={signatureName}
-                      onChange={e => setSignatureName(e.target.value)}
-                    />
+                  <div className="flex flex-col md:flex-row md:items-end justify-between mb-4 border-t border-slate-200 pt-4 gap-4">
+                    <div className="flex-1">
+                      <label className="block text-sm font-bold text-slate-800">9. CUSTOMER AUTHORIZATION</label>
+                      <p className="text-xs text-slate-500 mb-2">By typing your full name below, you authorize construction.</p>
+                      <input 
+                        type="text" 
+                        placeholder="Type your full legal name to sign..." 
+                        className="w-full p-4 border-2 border-slate-200 rounded-xl focus:border-green-500 focus:ring-4 focus:ring-green-500/20 outline-none font-bold text-slate-900 font-serif"
+                        value={signatureName}
+                        onChange={e => setSignatureName(e.target.value)}
+                      />
+                    </div>
+                    <div className="text-left md:text-right shrink-0">
+                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block">Approved Total</span>
+                      <span className="text-3xl font-black text-green-600 block mt-1">Total: ${dynamicTotal.toLocaleString(undefined, {minimumFractionDigits: 2})}</span>
+                    </div>
                   </div>
-                  <div className="text-left md:text-right shrink-0">
-                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block">Approved Total</span>
-                    <span className="text-3xl font-black text-green-600 block mt-1">Total: ${dynamicTotal.toLocaleString(undefined, {minimumFractionDigits: 2})}</span>
-                  </div>
-                </div>
 
-                <button 
-                  onClick={handleApprove}
-                  disabled={!signatureName.trim() || isApproving}
-                  className="w-full bg-green-600 hover:bg-green-500 text-white font-bold py-4 px-8 rounded-xl transition-all shadow-xl disabled:opacity-50 disabled:shadow-none flex items-center justify-center gap-2 text-xl hover:-translate-y-1"
-                >
-                  {isApproving ? <Loader2 size={24} className="animate-spin" /> : <CheckCircle2 size={24} />}
-                  Sign & Schedule Project
-                </button>
+                  <button 
+                    onClick={handleApprove}
+                    disabled={!signatureName.trim() || isApproving}
+                    className="w-full bg-green-600 hover:bg-green-500 text-white font-bold py-4 px-8 rounded-xl transition-all shadow-xl disabled:opacity-50 disabled:shadow-none flex items-center justify-center gap-2 text-xl hover:-translate-y-1"
+                  >
+                    {isApproving ? <Loader2 size={24} className="animate-spin" /> : <CheckCircle2 size={24} />}
+                    Sign & Schedule Project
+                  </button>
+                </div>
+                
               </div>
             </div>
 
