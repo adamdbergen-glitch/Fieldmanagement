@@ -1,13 +1,16 @@
-import React, { useState } from 'react'
+import React, { useState, useRef } from 'react' // NEW: Added useRef
 import { supabase } from '../lib/supabase'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { FileText, Image as ImageIcon, Trash2, Upload, Paperclip, Eye } from 'lucide-react'
+import { FileText, Image as ImageIcon, Trash2, Upload, Paperclip, Eye, UploadCloud, Loader2 } from 'lucide-react' // NEW: Added UploadCloud and Loader2
 import { useAuth } from '../contexts/AuthContext'
 
 export default function ProjectFiles({ projectId }) {
   const { userProfile } = useAuth()
   const queryClient = useQueryClient()
   const [isUploading, setIsUploading] = useState(false)
+  
+  // NEW: Ref to trigger the file input from our empty state button
+  const fileInputRef = useRef(null)
 
   // Fetch Files
   const { data: files } = useQuery({
@@ -59,6 +62,8 @@ export default function ProjectFiles({ projectId }) {
       alert('Upload failed: ' + error.message)
     } finally {
       setIsUploading(false)
+      // NEW: Clear the input so the same file can be selected again if needed
+      if (fileInputRef.current) fileInputRef.current.value = ''
     }
   }
 
@@ -80,14 +85,30 @@ export default function ProjectFiles({ projectId }) {
         <label className={`cursor-pointer bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-2 transition-colors ${isUploading ? 'opacity-50 pointer-events-none' : ''}`}>
           <Upload size={14} />
           {isUploading ? 'Uploading...' : 'Upload File'}
-          <input type="file" className="hidden" onChange={handleFileUpload} accept="image/*,.pdf" />
+          {/* NEW: Attached the fileInputRef here */}
+          <input type="file" ref={fileInputRef} className="hidden" onChange={handleFileUpload} accept="image/*,.pdf" />
         </label>
       </div>
 
       <div className="space-y-2">
+        {/* NEW: Upgraded Empty State with Call to Action */}
         {files?.length === 0 && (
-          <div className="text-center py-6 border-2 border-dashed border-slate-100 rounded-lg">
-            <p className="text-xs text-slate-400">No blueprints or photos uploaded.</p>
+          <div className="flex flex-col items-center justify-center text-center py-10 px-4 bg-slate-50 border-2 border-dashed border-slate-200 rounded-xl">
+            <div className="w-12 h-12 bg-white shadow-sm border border-slate-100 rounded-full flex items-center justify-center mb-4">
+              <UploadCloud size={24} className="text-slate-400" />
+            </div>
+            <h4 className="text-sm font-bold text-slate-700 mb-2">No Files Uploaded</h4>
+            <p className="text-xs text-slate-500 max-w-[250px] mb-5 leading-relaxed">
+              Keep all your project blueprints, permits, and site photos in one organized place.
+            </p>
+            <button 
+              onClick={() => fileInputRef.current?.click()}
+              disabled={isUploading}
+              className="bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 hover:text-blue-600 hover:border-blue-300 text-xs font-bold py-2.5 px-5 rounded-lg transition-all flex items-center gap-2 shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isUploading ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
+              {isUploading ? 'Uploading...' : 'Upload First File'}
+            </button>
           </div>
         )}
 
@@ -98,7 +119,7 @@ export default function ProjectFiles({ projectId }) {
                 {file.file_type === 'image' ? <ImageIcon size={20} /> : <FileText size={20} />}
               </div>
               <div className="truncate">
-                <p className="text-sm font-bold text-slate-700 truncate group-hover:text-amber-700">{file.file_name}</p>
+                <p className="text-sm font-bold text-slate-700 truncate group-hover:text-amber-700">{file.name}</p>
                 <p className="text-xs text-slate-400">
                    {new Date(file.created_at).toLocaleDateString()}
                 </p>
