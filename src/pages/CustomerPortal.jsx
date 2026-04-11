@@ -70,7 +70,6 @@ export default function CustomerPortal() {
       
       let proj = data[0]
       
-      // 1. Try fetching from the customers table (Fails if Supabase RLS blocks public access)
       if (!proj.customer_name && proj.customer_id) {
         const { data: custData, error: custError } = await supabase.from('customers').select('name, email').eq('id', proj.customer_id).single()
         if (custData) {
@@ -79,13 +78,10 @@ export default function CustomerPortal() {
         }
       }
 
-      // 2. ULTIMATE FALLBACK: If Supabase blocked the query, but this is an AI lead, extract the name from the title!
       if (!proj.customer_name && proj.name && proj.name.startsWith("Lead: ")) {
         proj.customer_name = proj.name.replace("Lead: ", "").trim();
       }
 
-      // ---> HERE IS THE NEW TRACKER FIRE <---
-      // Fire the tracker in the background without making the user wait
       supabase.rpc('log_portal_view', { p_token: token }).then()
 
       return proj
@@ -350,7 +346,7 @@ export default function CustomerPortal() {
              </div>
           )}
 
-          {/* NEW: WHY CHOOSE US SECTION */}
+          {/* THE PAVING STONE PROS DIFFERENCE (BENEFITS) */}
           {isEstimatePhase && (
             <div className="md:col-span-3 bg-white/70 backdrop-blur-2xl rounded-[2.5rem] shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-white/80 p-8 lg:p-10 relative overflow-hidden group">
               <div className="absolute -right-20 -top-20 w-64 h-64 bg-amber-500/10 rounded-full blur-3xl pointer-events-none"></div>
@@ -362,7 +358,6 @@ export default function CustomerPortal() {
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6 relative z-10">
-                {/* Point 1 */}
                 <div className="bg-white/60 p-6 rounded-2xl border border-white/80 shadow-sm hover:shadow-md transition-all hover:-translate-y-1">
                   <div className="w-12 h-12 rounded-xl bg-amber-100 flex items-center justify-center mb-4 text-amber-600">
                     <Hammer size={24} />
@@ -371,7 +366,6 @@ export default function CustomerPortal() {
                   <p className="text-sm text-slate-600 leading-relaxed">Our permanent-build approach uses deep-base preparation to ensure your investment survives the Red River Valley clay and extreme freeze-thaw cycles.</p>
                 </div>
 
-                {/* Point 2 */}
                 <div className="bg-white/60 p-6 rounded-2xl border border-white/80 shadow-sm hover:shadow-md transition-all hover:-translate-y-1">
                   <div className="w-12 h-12 rounded-xl bg-slate-100 flex items-center justify-center mb-4 text-slate-600">
                     <Sparkles size={24} />
@@ -380,7 +374,6 @@ export default function CustomerPortal() {
                   <p className="text-sm text-slate-600 leading-relaxed">We never compromise on quality. We partner exclusively with industry leaders like Barkman, Belgard, and Techo-Bloc for unmatched beauty and durability.</p>
                 </div>
 
-                {/* Point 3 */}
                 <div className="bg-white/60 p-6 rounded-2xl border border-white/80 shadow-sm hover:shadow-md transition-all hover:-translate-y-1">
                   <div className="w-12 h-12 rounded-xl bg-blue-100 flex items-center justify-center mb-4 text-blue-600">
                     <CheckCircle2 size={24} />
@@ -590,69 +583,76 @@ export default function CustomerPortal() {
 
       </div>
 
+      {/* FIXED UX MODAL (Paper View for Readability) */}
       {showContractModal && (
-        <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 sm:p-6 animate-in fade-in duration-300">
-          <div className="bg-white w-full max-w-3xl rounded-3xl shadow-2xl flex flex-col max-h-[90vh] overflow-hidden animate-in zoom-in-95 duration-300">
+        <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-md z-50 flex items-center justify-center p-2 sm:p-6 animate-in fade-in duration-300">
+          <div className="bg-white w-full max-w-4xl rounded-[2.5rem] shadow-2xl flex flex-col h-[95vh] md:h-[85vh] overflow-hidden animate-in zoom-in-95 duration-300">
             
-            <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+            <div className="p-6 md:p-8 border-b border-slate-100 flex justify-between items-center bg-white shrink-0">
               <div>
-                <h3 className="font-black text-slate-900 text-xl">Contract & Terms of Service</h3>
-                <p className="text-sm text-slate-500 mt-1">Please review and sign below to approve your project.</p>
+                <h3 className="font-black text-slate-900 text-2xl tracking-tight">Contract & Terms</h3>
+                <p className="text-sm text-slate-500 mt-1">Please review the details below before signing.</p>
               </div>
-              <button onClick={() => setShowContractModal(false)} className="w-10 h-10 rounded-full bg-white border border-slate-200 flex items-center justify-center text-slate-400 hover:text-slate-800 transition-colors shadow-sm">
-                <X size={20} />
+              <button onClick={() => setShowContractModal(false)} className="w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center text-slate-400 hover:text-slate-800 transition-colors shadow-sm">
+                <X size={24} />
               </button>
             </div>
 
-            <div className="p-6 overflow-y-auto flex-1 bg-white">
-              <div className="prose prose-sm max-w-none text-slate-600 font-medium whitespace-pre-wrap bg-slate-50 p-6 rounded-xl border border-slate-100">
-                {CONTRACT_TERMS}
+            <div className="p-4 md:p-10 overflow-y-auto flex-1 bg-slate-50/50">
+              <div className="max-w-2xl mx-auto">
+                <div className="prose prose-slate max-w-none text-slate-700 font-medium whitespace-pre-wrap leading-relaxed bg-white p-8 md:p-12 rounded-3xl border border-slate-200 shadow-sm text-base md:text-lg">
+                  <div className="font-serif italic text-slate-500 mb-8 border-b pb-4">
+                    Agreement for: {project.name}
+                  </div>
+                  {CONTRACT_TERMS}
+                </div>
               </div>
             </div>
 
-            <div className="p-6 border-t border-slate-100 bg-slate-50">
-              
-              <div className="mb-6 bg-amber-50 border border-amber-200 rounded-xl p-4 flex gap-3 items-start shadow-sm">
-                <div className="w-8 h-8 rounded-full bg-amber-100 flex items-center justify-center shrink-0">
-                  <DollarSign size={16} className="text-amber-600" />
-                </div>
-                <div>
-                  <p className="text-sm font-bold text-slate-800">Deposit Reminder</p>
-                  <p className="text-xs text-slate-600 mt-1">
-                    As per section 4.1 of the contract, a <strong>$500 non-refundable deposit</strong> is required to secure your spot on the schedule.
-                  </p>
-                  <div className="mt-3 text-xs font-medium text-slate-700 space-y-1.5">
-                    <p>✅ <strong>E-Transfer:</strong> Please send to <a href="mailto:adam@pavingstone.pro" className="text-blue-600 font-bold hover:underline">adam@pavingstone.pro</a> (No password required)</p>
-                    <p>✅ <strong>Other Methods:</strong> We also accept Cash or Cheque.</p>
+            <div className="p-6 md:p-8 border-t border-slate-100 bg-white shrink-0">
+              <div className="max-w-2xl mx-auto">
+                
+                <div className="mb-6 bg-amber-50 border border-amber-200 rounded-xl p-4 flex gap-3 items-start shadow-sm">
+                  <div className="w-8 h-8 rounded-full bg-amber-100 flex items-center justify-center shrink-0">
+                    <DollarSign size={16} className="text-amber-600" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-bold text-slate-800">Deposit Reminder</p>
+                    <p className="text-xs text-slate-600 mt-1">
+                      As per section 4.1 of the contract, a <strong>$500 non-refundable deposit</strong> is required to secure your spot on the schedule.
+                    </p>
+                    <div className="mt-3 text-xs font-medium text-slate-700 space-y-1.5">
+                      <p>✅ <strong>E-Transfer:</strong> Please send to <a href="mailto:adam@pavingstone.pro" className="text-blue-600 font-bold hover:underline">adam@pavingstone.pro</a> (No password required)</p>
+                      <p>✅ <strong>Other Methods:</strong> We also accept Cash or Cheque.</p>
+                    </div>
                   </div>
                 </div>
-              </div>
 
-              <div className="flex items-center justify-between mb-4 border-t border-slate-200 pt-4">
-                <label className="block text-sm font-bold text-slate-800">9. CUSTOMER AUTHORIZATION</label>
-                <div className="text-right">
-                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block">Subtotal: ${dynamicSubtotal.toLocaleString(undefined, {minimumFractionDigits: 2})}</span>
-                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block">GST (5%): ${dynamicGST.toLocaleString(undefined, {minimumFractionDigits: 2})}</span>
-                  <span className="text-xl font-black text-green-600 block mt-1">Total: ${dynamicTotal.toLocaleString(undefined, {minimumFractionDigits: 2})}</span>
+                <div className="flex flex-col md:flex-row md:items-end justify-between mb-4 border-t border-slate-200 pt-4 gap-4">
+                  <div className="flex-1">
+                    <label className="block text-sm font-bold text-slate-800">9. CUSTOMER AUTHORIZATION</label>
+                    <p className="text-xs text-slate-500 mb-2">By typing your full name below, you authorize construction.</p>
+                    <input 
+                      type="text" 
+                      placeholder="Type your full legal name to sign..." 
+                      className="w-full p-4 border-2 border-slate-200 rounded-xl focus:border-green-500 focus:ring-4 focus:ring-green-500/20 outline-none font-bold text-slate-900 font-serif"
+                      value={signatureName}
+                      onChange={e => setSignatureName(e.target.value)}
+                    />
+                  </div>
+                  <div className="text-left md:text-right shrink-0">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block">Approved Total</span>
+                    <span className="text-3xl font-black text-green-600 block mt-1">Total: ${dynamicTotal.toLocaleString(undefined, {minimumFractionDigits: 2})}</span>
+                  </div>
                 </div>
-              </div>
-              <p className="text-xs text-slate-500 mb-4">By typing your full name below, you authorize The Paving Stone Pros to commence the agreed-upon project and confirm you have selected the items totaling ${dynamicTotal.toLocaleString(undefined, {minimumFractionDigits: 2})}.</p>
-              
-              <div className="flex flex-col sm:flex-row gap-4">
-                <input 
-                  type="text" 
-                  placeholder="Type your full legal name to sign..." 
-                  className="flex-1 p-4 border-2 border-slate-200 rounded-xl focus:border-green-500 focus:ring-4 focus:ring-green-500/20 outline-none font-bold text-slate-900 font-serif"
-                  value={signatureName}
-                  onChange={e => setSignatureName(e.target.value)}
-                />
+
                 <button 
                   onClick={handleApprove}
                   disabled={!signatureName.trim() || isApproving}
-                  className="bg-green-600 hover:bg-green-500 text-white font-bold py-4 px-8 rounded-xl transition-all shadow-[0_4px_14px_rgba(22,163,74,0.3)] disabled:opacity-50 disabled:shadow-none flex items-center justify-center gap-2"
+                  className="w-full bg-green-600 hover:bg-green-500 text-white font-bold py-4 px-8 rounded-xl transition-all shadow-xl disabled:opacity-50 disabled:shadow-none flex items-center justify-center gap-2 text-xl hover:-translate-y-1"
                 >
-                  {isApproving ? <Loader2 size={20} className="animate-spin" /> : <CheckCircle2 size={20} />}
-                  Sign & Approve
+                  {isApproving ? <Loader2 size={24} className="animate-spin" /> : <CheckCircle2 size={24} />}
+                  Sign & Schedule Project
                 </button>
               </div>
             </div>
