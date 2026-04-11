@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useRef } from 'react' // NEW: Imported useRef
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '../lib/supabase'
 import { Package, Plus, Trash2, Truck, ArrowRight, X, DollarSign, Save, Loader2 } from 'lucide-react'
@@ -11,6 +11,9 @@ export default function ProjectMaterials({ projectId }) {
   // Local state for adding new items
   const [newItemName, setNewItemName] = useState('')
   const [newItemQty, setNewItemQty] = useState('')
+
+  // NEW: Ref to focus the input from the empty state button
+  const nameInputRef = useRef(null)
 
   // Local state for Crew inputs
   const [loadInputs, setLoadInputs] = useState({}) 
@@ -134,10 +137,24 @@ export default function ProjectMaterials({ projectId }) {
 
       {/* LIST OF MATERIALS */}
       <div className="flex-1 space-y-3 mb-6 overflow-y-auto">
+        
+        {/* NEW: Upgraded Empty State with Call to Action */}
         {materials?.length === 0 && (
-          <p className="text-slate-400 italic text-sm text-center py-4 border-2 border-dashed border-slate-100 rounded-lg">
-            List is empty. Add materials below.
-          </p>
+          <div className="flex flex-col items-center justify-center text-center py-10 px-4 bg-slate-50 border-2 border-dashed border-slate-200 rounded-xl">
+            <div className="w-12 h-12 bg-white shadow-sm border border-slate-100 rounded-full flex items-center justify-center mb-4">
+              <Package size={24} className="text-slate-400" />
+            </div>
+            <h4 className="text-sm font-bold text-slate-700 mb-2">No Materials Added</h4>
+            <p className="text-xs text-slate-500 max-w-[250px] mb-5 leading-relaxed">
+              Start building your load list so the crew knows exactly what to bring to the site.
+            </p>
+            <button 
+              onClick={() => nameInputRef.current?.focus()}
+              className="bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 hover:text-amber-600 hover:border-amber-300 text-xs font-bold py-2.5 px-5 rounded-lg transition-all flex items-center gap-2 shadow-sm"
+            >
+              <Plus size={14} /> Add First Material
+            </button>
+          </div>
         )}
 
         {materials?.map(item => {
@@ -203,8 +220,22 @@ export default function ProjectMaterials({ projectId }) {
       <div className="pt-4 border-t border-slate-100">
         <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Add New Material</h4>
         <form onSubmit={handleAddMaterial} className="flex gap-2">
-          <input type="text" placeholder="Item (e.g. Gravel)" className="flex-1 p-2 text-sm border border-slate-300 rounded focus:border-amber-500 outline-none" value={newItemName} onChange={(e) => setNewItemName(e.target.value)} />
-          <input type="number" step="any" placeholder="Qty" className="w-16 p-2 text-sm border border-slate-300 rounded focus:border-amber-500 outline-none" value={newItemQty} onChange={(e) => setNewItemQty(e.target.value)} />
+          <input 
+            type="text" 
+            placeholder="Item (e.g. Gravel)" 
+            className="flex-1 p-2 text-sm border border-slate-300 rounded focus:border-amber-500 outline-none" 
+            value={newItemName} 
+            onChange={(e) => setNewItemName(e.target.value)} 
+            ref={nameInputRef} // NEW: Attached the ref here
+          />
+          <input 
+            type="number" 
+            step="any" 
+            placeholder="Qty" 
+            className="w-16 p-2 text-sm border border-slate-300 rounded focus:border-amber-500 outline-none" 
+            value={newItemQty} 
+            onChange={(e) => setNewItemQty(e.target.value)} 
+          />
           <button type="submit" className="bg-amber-500 hover:bg-amber-600 text-white p-2 rounded"><Plus size={20} /></button>
         </form>
       </div>
