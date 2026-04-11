@@ -5,7 +5,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { 
   format, parseISO, differenceInMinutes, addDays, startOfMonth, endOfMonth, 
   setDate, isFuture, isBefore, setHours, setMinutes, isValid 
-} from 'date-fns' // <--- ADDED isValid
+} from 'date-fns' 
 import { 
   Clock, Save, Loader2, Calendar, User, Edit2, X, Settings, MapPin, Plus, 
   Briefcase, AlertTriangle, FileText, Download, Coffee, ArrowRightCircle, Trash2 
@@ -78,7 +78,6 @@ export default function Timesheets() {
     onSuccess: () => { queryClient.invalidateQueries(['time_logs']); setEditingLog(null) }
   })
 
-  // RESTORED: Delete Mutation
   const deleteLogMutation = useMutation({
     mutationFn: async (id) => {
       const { error } = await supabase.from('time_logs').delete().eq('id', id)
@@ -108,7 +107,6 @@ export default function Timesheets() {
     const start = parseISO(clockIn)
     const end = parseISO(clockOut)
     
-    // Safety check
     if (!isValid(start) || !isValid(end)) return 0
 
     let totalMins = differenceInMinutes(end, start)
@@ -130,7 +128,6 @@ export default function Timesheets() {
     if (!payrollConfig?.auto_start_adjust || !payrollConfig?.official_start_time) return isoString
     const inputTime = parseISO(isoString)
     
-    // Safety check
     if (!isValid(inputTime)) return isoString
 
     const [targetHour, targetMin] = payrollConfig.official_start_time.split(':').map(Number)
@@ -141,13 +138,13 @@ export default function Timesheets() {
     return isoString
   }
 
-  // --- HELPER: Pay Period Logic (CRASH PROOF) ---
+  // --- HELPER: Pay Period Logic ---
   const getPeriodData = (dateString) => {
     if (!payrollConfig) return { label: 'Loading...', start: null, end: null }
-    if (!dateString) return { label: 'Unscheduled', start: new Date(), end: new Date() } // Handle nulls
+    if (!dateString) return { label: 'Unscheduled', start: new Date(), end: new Date() } 
 
     const date = parseISO(dateString)
-    if (!isValid(date)) return { label: 'Invalid Date', start: new Date(), end: new Date() } // Handle bad dates
+    if (!isValid(date)) return { label: 'Invalid Date', start: new Date(), end: new Date() } 
 
     let start, end
 
@@ -159,7 +156,6 @@ export default function Timesheets() {
       else { start = setDate(date, 16); end = endOfMonth(date); }
     } else {
       const anchor = parseISO(payrollConfig.anchor_date)
-      // Safety check for anchor date
       if (!isValid(anchor)) return { label: 'Config Error', start: new Date(), end: new Date() }
 
       const freqDays = payrollConfig.frequency === 'weekly' ? 7 : 14 
@@ -259,7 +255,7 @@ export default function Timesheets() {
                 <h3 className="font-bold text-slate-700 flex items-center gap-2">
                   <Calendar size={18} className="text-amber-500"/> {group.label}
                 </h3>
-                <p className="text-xs text-slate-400 font-bold uppercase tracking-widest mt-1 ml-6">
+                <p className="text-xs text-slate-400 font-bold uppercase tracking-widest mt-1 md:ml-6">
                   Pay Day: {group.payDate && isValid(group.payDate) ? format(group.payDate, 'MMM d, yyyy') : 'Pending Config'}
                 </p>
               </div>
@@ -269,7 +265,7 @@ export default function Timesheets() {
                 {userProfile?.role === 'admin' && (
                   <button 
                     onClick={() => setReportPeriod(key)}
-                    className="text-xs font-bold flex items-center gap-1 bg-white border border-slate-300 text-slate-600 px-3 py-1 rounded hover:text-blue-600 hover:border-blue-300 transition-colors"
+                    className="text-xs font-bold flex items-center gap-1 bg-white border border-slate-300 text-slate-600 px-3 py-1 rounded hover:text-blue-600 hover:border-blue-300 transition-colors shadow-sm"
                   >
                     <FileText size={14}/> Report
                   </button>
@@ -277,78 +273,106 @@ export default function Timesheets() {
               </div>
             </div>
             
-            <table className="w-full text-left border-collapse">
-              <thead className="bg-white border-b border-slate-100">
-                <tr>
-                  <th className="p-4 text-xs font-bold text-slate-400 uppercase">Person / Project</th>
-                  <th className="p-4 text-xs font-bold text-slate-400 uppercase hidden md:table-cell">Date</th>
-                  <th className="p-4 text-xs font-bold text-slate-400 uppercase">In / Out</th>
-                  <th className="p-4 text-xs font-bold text-slate-400 uppercase">Total (Paid)</th>
-                  {userProfile?.role === 'admin' && <th className="p-4 text-xs font-bold text-slate-400 uppercase text-right">Actions</th>}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
+            {/* NEW: MOBILE-OPTIMIZED CARD LAYOUT (Replaces traditional table) */}
+            <div className="w-full">
+              {/* Desktop Header */}
+              <div className="hidden md:grid grid-cols-12 gap-4 p-4 bg-white border-b border-slate-100">
+                <div className="col-span-4 text-xs font-bold text-slate-400 uppercase tracking-wider">Person / Project</div>
+                <div className="col-span-2 text-xs font-bold text-slate-400 uppercase tracking-wider">Date</div>
+                <div className="col-span-3 text-xs font-bold text-slate-400 uppercase tracking-wider">In / Out</div>
+                <div className="col-span-2 text-xs font-bold text-slate-400 uppercase tracking-wider">Total (Paid)</div>
+                {userProfile?.role === 'admin' && <div className="col-span-1 text-xs font-bold text-slate-400 uppercase tracking-wider text-right">Actions</div>}
+              </div>
+              
+              {/* List Body */}
+              <div className="divide-y divide-slate-100 bg-slate-50/50 md:bg-white p-4 md:p-0 space-y-4 md:space-y-0">
                 {group.logs.map(log => {
                    const paidMinutes = calculatePaidMinutes(log.clock_in_time, log.clock_out_time)
                    const hours = Math.floor(paidMinutes / 60)
                    const mins = paidMinutes % 60
                    
                    return (
-                    <tr key={log.id} className="hover:bg-slate-50/50 transition-colors">
-                      <td className="p-4">
-                        <div className="flex items-center gap-2">
-                          <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center text-blue-700 font-bold text-xs shrink-0">
+                    <div key={log.id} className="bg-white md:bg-transparent rounded-2xl md:rounded-none border border-slate-200 md:border-none shadow-sm md:shadow-none p-4 md:p-0 hover:bg-slate-50/50 transition-colors">
+                      <div className="grid grid-cols-1 md:grid-cols-12 gap-4 md:gap-4 md:p-4 items-center">
+                        
+                        {/* Mobile Header: Date & Actions */}
+                        <div className="md:hidden flex justify-between items-center pb-3 border-b border-slate-100">
+                          <span className="text-slate-600 text-sm font-mono font-bold flex items-center gap-2">
+                            <Calendar size={14} className="text-amber-500"/>
+                            {safeFormat(log.clock_in_time, 'EEE, MMM d')}
+                          </span>
+                          {userProfile?.role === 'admin' && (
+                            <div className="flex items-center gap-3">
+                              <button onClick={() => setEditingLog(log)} className="text-slate-400 hover:text-blue-600 transition-colors bg-slate-50 p-1.5 rounded-lg border border-slate-200" title="Edit">
+                                <Edit2 size={16} />
+                              </button>
+                              <button onClick={() => handleDeleteLog(log.id)} className="text-slate-400 hover:text-red-500 transition-colors bg-red-50 p-1.5 rounded-lg border border-red-100" title="Delete">
+                                <Trash2 size={16} />
+                              </button>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Person / Project */}
+                        <div className="col-span-1 md:col-span-4 flex items-center gap-3">
+                          <div className="w-10 h-10 md:w-8 md:h-8 rounded-full bg-blue-100 flex items-center justify-center text-blue-700 font-bold text-sm md:text-xs shrink-0">
                             {log.profiles?.full_name?.charAt(0) || <User size={12}/>}
                           </div>
                           <div>
-                            <span className="font-medium text-slate-900 text-sm block">{log.profiles?.full_name}</span>
-                            <span className="text-xs text-slate-500 flex items-center gap-1"><Briefcase size={10}/> {log.project?.name || 'No Project'}</span>
+                            <span className="font-bold text-slate-900 text-base md:text-sm block">{log.profiles?.full_name}</span>
+                            <span className="text-xs text-slate-500 flex items-center gap-1 mt-0.5"><Briefcase size={12} className="md:w-3 md:h-3"/> {log.project?.name || 'No Project'}</span>
                           </div>
                         </div>
-                      </td>
-                      <td className="p-4 text-slate-600 text-sm font-mono hidden md:table-cell">{safeFormat(log.clock_in_time, 'EEE, MMM d')}</td>
-                      
-                      {/* GPS Links in this column */}
-                      <td className="p-4 text-sm">
-                        <div className="md:hidden text-xs text-slate-400 mb-1">
-                            {safeFormat(log.clock_in_time, 'MMM d')}
+
+                        {/* Desktop Date */}
+                        <div className="hidden md:block col-span-2 text-slate-600 text-sm font-mono font-medium">
+                          {safeFormat(log.clock_in_time, 'EEE, MMM d')}
                         </div>
-                        <span className="text-green-700 font-bold">{safeFormat(log.clock_in_time, 'h:mm a')}</span>
-                        {log.gps_in_lat && (
-                          <a href={`https://www.google.com/maps?q=${log.gps_in_lat},${log.gps_in_long}`} target="_blank" rel="noreferrer" className="inline-block ml-1 text-slate-300 hover:text-blue-500">
-                            <MapPin size={12} />
-                          </a>
-                        )}
-                        <span className="text-slate-300 mx-2">-</span>
-                        {log.clock_out_time ? (
-                          <>
-                            <span className="text-slate-700">{safeFormat(log.clock_out_time, 'h:mm a')}</span>
-                            {log.gps_out_lat && (
-                              <a href={`https://www.google.com/maps?q=${log.gps_out_lat},${log.gps_out_long}`} target="_blank" rel="noreferrer" className="inline-block ml-1 text-slate-300 hover:text-blue-500">
+                        
+                        {/* In / Out */}
+                        <div className="col-span-1 md:col-span-3 bg-slate-50 md:bg-transparent p-3 md:p-0 rounded-xl md:rounded-none flex items-center justify-between md:justify-start border border-slate-100 md:border-none">
+                          <div className="text-sm">
+                            <span className="text-[10px] font-bold text-slate-400 uppercase md:hidden block mb-1">Clock In / Out</span>
+                            <span className="text-green-700 font-bold">{safeFormat(log.clock_in_time, 'h:mm a')}</span>
+                            {log.gps_in_lat && (
+                              <a href={`https://www.google.com/maps?q=${log.gps_in_lat},${log.gps_in_long}`} target="_blank" rel="noreferrer" className="inline-block ml-1 text-slate-300 hover:text-blue-500">
                                 <MapPin size={12} />
                               </a>
                             )}
-                          </>
-                        ) : (
-                          <span className="text-amber-600 font-bold text-xs uppercase bg-amber-50 px-2 py-0.5 rounded">Active</span>
-                        )}
-                      </td>
-
-                      <td className="p-4 font-bold text-slate-800 text-sm">
-                        {log.clock_out_time ? (
-                          <div className="flex items-center gap-2">
-                            <span>{`${hours}h ${mins}m`}</span>
-                            {differenceInMinutes(parseISO(log.clock_out_time), parseISO(log.clock_in_time)) > paidMinutes && (
-                              <Coffee size={14} className="text-amber-500" title="Lunch Auto-Deducted"/>
+                            <span className="text-slate-300 mx-2">-</span>
+                            {log.clock_out_time ? (
+                              <>
+                                <span className="text-slate-700 font-medium">{safeFormat(log.clock_out_time, 'h:mm a')}</span>
+                                {log.gps_out_lat && (
+                                  <a href={`https://www.google.com/maps?q=${log.gps_out_lat},${log.gps_out_long}`} target="_blank" rel="noreferrer" className="inline-block ml-1 text-slate-300 hover:text-blue-500">
+                                    <MapPin size={12} />
+                                  </a>
+                                )}
+                              </>
+                            ) : (
+                              <span className="text-amber-600 font-bold text-[10px] uppercase bg-amber-50 px-2 py-0.5 rounded ml-1 border border-amber-200">Active</span>
                             )}
                           </div>
-                        ) : '-'}
-                      </td>
-                      
-                      {/* Delete Button */}
-                      {userProfile?.role === 'admin' && (
-                        <td className="p-4 text-right">
-                          <div className="flex items-center justify-end gap-2">
+                        </div>
+
+                        {/* Total Paid */}
+                        <div className="col-span-1 md:col-span-2 flex items-center justify-between md:justify-start pt-2 md:pt-0 border-t border-slate-100 md:border-none mt-1 md:mt-0">
+                          <span className="text-[10px] font-bold text-slate-400 uppercase md:hidden block">Total Paid Hours</span>
+                          <span className="font-bold text-slate-800 text-base md:text-sm">
+                            {log.clock_out_time ? (
+                              <div className="flex items-center gap-2">
+                                <span>{`${hours}h ${mins}m`}</span>
+                                {differenceInMinutes(parseISO(log.clock_out_time), parseISO(log.clock_in_time)) > paidMinutes && (
+                                  <Coffee size={14} className="text-amber-500" title="Lunch Auto-Deducted"/>
+                                )}
+                              </div>
+                            ) : '-'}
+                          </span>
+                        </div>
+                        
+                        {/* Desktop Actions */}
+                        {userProfile?.role === 'admin' && (
+                          <div className="hidden md:flex col-span-1 justify-end gap-3">
                             <button onClick={() => setEditingLog(log)} className="text-slate-300 hover:text-blue-600 transition-colors" title="Edit">
                               <Edit2 size={16} />
                             </button>
@@ -356,13 +380,13 @@ export default function Timesheets() {
                               <Trash2 size={16} />
                             </button>
                           </div>
-                        </td>
-                      )}
-                    </tr>
+                        )}
+                      </div>
+                    </div>
                    )
                 })}
-              </tbody>
-            </table>
+              </div>
+            </div>
           </div>
         ))}
       </div>
