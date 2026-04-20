@@ -301,6 +301,11 @@ export default function ProjectDetails() {
         })
       })
       if (!res.ok) throw new Error("Failed to send")
+      
+      // NEW: Update database to track when the estimate was sent
+      await supabase.from('projects').update({ estimate_sent_at: new Date().toISOString() }).eq('id', id)
+      queryClient.invalidateQueries(['project', id])
+
       alert("Estimate sent successfully!")
       setShowEmailModal(false)
     } catch (err) { alert(err.message) } 
@@ -324,6 +329,11 @@ export default function ProjectDetails() {
         })
       })
       if (!res.ok) throw new Error("Failed to send")
+      
+      // NEW: Update database to track when the follow-up was sent
+      await supabase.from('projects').update({ followup_sent_at: new Date().toISOString() }).eq('id', id)
+      queryClient.invalidateQueries(['project', id])
+
       alert("Follow up sent successfully!")
     } catch (err) { alert(err.message) } 
     finally { setIsSendingFollowup(false) }
@@ -597,11 +607,26 @@ export default function ProjectDetails() {
                         {isSendingEstimate ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
                         Email Estimate to Client
                       </button>
+                      {/* NEW: Show when the estimate was last sent */}
+                      {project.estimate_sent_at && (
+                        <p className="text-[10px] text-center text-amber-200/70 mt-1">
+                          Sent: {format(parseISO(project.estimate_sent_at), 'MMM d, h:mm a')}
+                        </p>
+                      )}
+
                       {project.status === 'New' && (
-                        <button type="button" onClick={handleSendFollowupEmail} disabled={isSendingFollowup} className="w-full bg-white/20 hover:bg-white/30 text-white font-bold py-2 rounded-lg flex items-center justify-center gap-2 transition-colors disabled:opacity-50">
-                          {isSendingFollowup ? <Loader2 size={16} className="animate-spin" /> : <MailQuestion size={16} />}
-                          Send Quick Follow-up
-                        </button>
+                        <>
+                          <button type="button" onClick={handleSendFollowupEmail} disabled={isSendingFollowup} className="w-full bg-white/20 hover:bg-white/30 text-white font-bold py-2 rounded-lg flex items-center justify-center gap-2 transition-colors disabled:opacity-50 mt-2">
+                            {isSendingFollowup ? <Loader2 size={16} className="animate-spin" /> : <MailQuestion size={16} />}
+                            Send Quick Follow-up
+                          </button>
+                          {/* NEW: Show when the follow-up was last sent */}
+                          {project.followup_sent_at && (
+                            <p className="text-[10px] text-center text-amber-200/70 mt-1">
+                              Sent: {format(parseISO(project.followup_sent_at), 'MMM d, h:mm a')}
+                            </p>
+                          )}
+                        </>
                       )}
                     </div>
                   )}
