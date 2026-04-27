@@ -148,6 +148,7 @@ export default function CustomerPortal() {
     finally { setIsSubmitting(false) }
   }
 
+// NEW: Updated to call the backend endpoint securely instead of writing directly to the database
   const handleApprove = async () => {
     if (!signatureName.trim()) return alert("Please type your full name to sign the contract.")
     if (dynamicSubtotal <= 0) return alert("You must select at least one item to approve the contract.")
@@ -155,70 +156,24 @@ export default function CustomerPortal() {
     
     try {
       const contractContent = `SIGNED CONTRACT\n\nProject: ${project.name}\nCustomer: ${signatureName}\nDate: ${new Date().toLocaleString()}\n\nApproved Subtotal: $${dynamicSubtotal.toLocaleString(undefined, {minimumFractionDigits: 2})}\nGST (5%): $${dynamicGST.toLocaleString(undefined, {minimumFractionDigits: 2})}\nGrand Total: $${dynamicTotal.toLocaleString(undefined, {minimumFractionDigits: 2})}\n\n${CONTRACT_TERMS}`;
-      const blob = new Blob([contractContent], { type: 'text/plain' });
-      const fileName = `${project.id}/Signed_Contract_${Date.now()}.txt`;
       
-      const { error: uploadError } = await supabase.storage.from('project-files').upload(fileName, blob);
-      if (uploadError) throw uploadError;
-
-      const { data: urlData } = supabase.storage.from('project-files').getPublicUrl(fileName);
-      const contractUrl = urlData.publicUrl;
-
-      await supabase.from('project_files').insert({
-        project_id: project.id,
-        file_name: `Signed_Contract_${signatureName.replace(/\s+/g, '_')}.txt`,
-        file_url: contractUrl,
-        file_type: 'document'
-      });
-
-      let newStartDate = new Date();
-      newStartDate.setDate(newStartDate.getDate() + 1); 
-      
-      const { data: lastProjects } = await supabase
-        .from('projects')
-        .select('start_date, duration_days')
-        .in('status', ['Scheduled', 'In Progress'])
-        .order('start_date', { ascending: false })
-        .limit(1);
-
-      if (lastProjects && lastProjects.length > 0 && lastProjects[0].start_date) {
-        const lastStart = new Date(lastProjects[0].start_date);
-        const duration = lastProjects[0].duration_days || 1;
-        newStartDate = addWorkDays(lastStart, duration);
-      } else {
-        while (!isWorkDay(newStartDate)) {
-          newStartDate.setDate(newStartDate.getDate() + 1);
-        }
-      }
-
-      const updates = lineItems.map(item => {
-        return supabase.from('project_line_items').update({
-          status: checkedItems[item.id] ? 'approved' : 'rejected'
-        }).eq('id', item.id)
-      })
-      await Promise.all(updates)
-
-      const { error: statusError } = await supabase
-        .from('projects')
-        .update({ 
-          status: 'Scheduled',
-          start_date: newStartDate.toISOString(),
-          estimate: dynamicSubtotal 
-        }) 
-        .eq('id', project.id)
-      if (statusError) throw statusError
-
       let clientEmail = project.customer_email;
       if (!clientEmail && project.customer_id) {
         const { data: cData } = await supabase.from('customers').select('email').eq('id', project.customer_id).single();
         if (cData?.email) clientEmail = cData.email;
       }
-      const formattedStartDate = format(newStartDate, 'MMMM do, yyyy');
 
-      await fetch('https://pavingstone-chatbot.onrender.com/api/approve-estimate', {
+      const approvedLineItems = lineItems.map(item => ({
+        id: item.id,
+        status: checkedItems[item.id] ? 'approved' : 'rejected'
+      }));
+
+      // Send payload to backend to bypass RLS securely
+      const res = await fetch('https://pavingstone-chatbot.onrender.com/api/approve-estimate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          projectId: project.id,
           customerName: signatureName,
           customerEmail: clientEmail,
           projectName: project.name,
@@ -226,17 +181,16 @@ export default function CustomerPortal() {
           gst: dynamicGST,
           grandTotal: dynamicTotal,
           adminLink: `${window.location.origin}/projects/${project.id}`,
-          contractUrl: contractUrl,
           portalLink: window.location.href, 
-          startDate: formattedStartDate
+          contractText: contractContent,
+          lineItems: approvedLineItems
         })
-      })
+      });
 
-      await supabase.from('project_comments').insert({
-        project_id: project.id,
-        content: `✅ The client (${signatureName}) has officially approved the estimate for $${dynamicTotal.toLocaleString(undefined, {minimumFractionDigits: 2})} and signed the contract.\n🗓️ Auto-scheduled for: ${formattedStartDate}\n💰 The client has been reminded to send their $500 deposit.`,
-        is_from_client: true
-      })
+      if (!res.ok) {
+        const errorData = await res.json();
+        throw new Error(errorData.error || "Server failed to process the approval.");
+      }
 
       alert("Thank you! Your project has been approved and scheduled. Please remember to send your $500 deposit to adam@pavingstone.pro to secure your spot.")
       window.location.reload() 
@@ -246,7 +200,6 @@ export default function CustomerPortal() {
       setIsApproving(false)
     }
   }
-
   if (isLoading) return (
     <div className="min-h-screen flex flex-col items-center justify-center"><Loader2 className="animate-spin text-amber-500 mb-4" size={40} /><p className="text-slate-500 font-medium">Loading your project...</p></div>
   )
