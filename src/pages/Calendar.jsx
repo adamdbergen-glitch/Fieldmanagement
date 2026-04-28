@@ -8,7 +8,8 @@ import parse from 'date-fns/parse'
 import startOfWeek from 'date-fns/startOfWeek'
 import getDay from 'date-fns/getDay'
 import enUS from 'date-fns/locale/en-US'
-import { differenceInCalendarDays } from 'date-fns' 
+// NEW: Added addDays for work day calculation
+import { differenceInCalendarDays, addDays } from 'date-fns' 
 
 // 2. IMPORT STYLES
 import 'react-big-calendar/lib/css/react-big-calendar.css'
@@ -17,7 +18,8 @@ import 'react-big-calendar/lib/addons/dragAndDrop/styles.css'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { can, PERMISSIONS } from '../lib/permissions'
-import { addWorkDays, shiftDateByWorkDays } from '../lib/dateUtils'
+// NEW: Added isWorkDay to properly count duration when resizing
+import { addWorkDays, shiftDateByWorkDays, isWorkDay } from '../lib/dateUtils'
 import { AlertTriangle, Loader, Check } from 'lucide-react'
 
 // Setup Date Localizer
@@ -75,13 +77,16 @@ export default function Calendar() {
         const duration = proj.duration_days ? parseInt(proj.duration_days) : 1
         
         // Calculate End Date
-        const endDate = addWorkDays(startDate, duration)
+        // NEW: Subtract 1 from duration and set to end of day to prevent calendar spillover
+        const endDate = addWorkDays(startDate, Math.max(0, duration - 1))
+        endDate.setHours(23, 59, 59, 999)
 
         return {
           id: proj.id,
           title: `${proj.customer?.name || 'Client'} - ${proj.name}`,
           start: startDate,
           end: endDate,
+          allDay: true, // NEW: Helps React Big Calendar render bounds cleanly
           status: proj.status,
           city: proj.city,
           duration_days: duration, 
@@ -139,9 +144,16 @@ export default function Calendar() {
     })
 
     try {
-      // Calculate new duration in days
-      const daysDiff = differenceInCalendarDays(end, start)
-      const newDuration = Math.max(1, daysDiff)
+      // NEW: Calculate new duration strictly in WORK days to prevent snapping bugs
+      let current = new Date(start)
+      let workDays = 0
+      while (current <= end) {
+        if (isWorkDay(current)) {
+          workDays++
+        }
+        current = addDays(current, 1)
+      }
+      const newDuration = Math.max(1, workDays)
 
       const { error } = await supabase
         .from('projects')
