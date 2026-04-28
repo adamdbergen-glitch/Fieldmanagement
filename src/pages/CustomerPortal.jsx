@@ -70,15 +70,24 @@ export default function CustomerPortal() {
   const { data: project, isLoading, error } = useQuery({
     queryKey: ['portal_project', token],
     queryFn: async () => {
-      // Clean, single RPC call using our newly upgraded database function
+      // 1. Fetch the project using the restored function
       const { data, error } = await supabase.rpc('get_project_by_token', { token_input: token })
-      
-      if (error) throw error
-      if (!data || data.length === 0) throw new Error("Project Not Found")
+      if (error || !data || data.length === 0) return null
       
       let proj = data[0]
+      
+      // 2. Fetch the customer details using the new secure helper function
+      if (proj.customer_id) {
+        const { data: custData, error: custError } = await supabase.rpc('get_customer_details', { c_id: proj.customer_id })
 
-      // Extract Name if missing
+        if (!custError && custData) {
+          proj.customer_name = custData.name || proj.customer_name
+          proj.customer_email = custData.email || proj.customer_email
+          proj.customer_phone = custData.phone || ''
+          proj.customer_address = custData.address || ''
+        }
+      }
+
       if (!proj.customer_name && proj.name && proj.name.startsWith("Lead: ")) {
         proj.customer_name = proj.name.replace("Lead: ", "").trim();
       }
@@ -617,7 +626,6 @@ export default function CustomerPortal() {
               </button>
             </div>
 
-            {/* Combined Contract Text and Signature into the same scrolling container */}
             <div className="p-4 md:p-10 overflow-y-auto flex-1 bg-slate-50/50">
               <div className="max-w-2xl mx-auto space-y-6">
                 
