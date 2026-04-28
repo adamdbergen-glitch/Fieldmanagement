@@ -7,6 +7,7 @@ import {
   Hammer, MessageSquare, Image as ImageIcon, Send, DollarSign, Sparkles, Phone, Mail, LayoutDashboard, FileSignature, X, ListPlus
 } from 'lucide-react'
 import { format, parseISO, differenceInDays } from 'date-fns'
+import { addWorkDays, isWorkDay } from '../lib/dateUtils' 
 import { APP_CONFIG } from '../config' 
 
 const CONTRACT_TERMS = `THE PAVINGSTONE PROS CONTRACT 
@@ -69,13 +70,14 @@ export default function CustomerPortal() {
       
       let proj = data[0]
       
+      // NEW: Fetching ALL customer data (email, phone, address) to inject into the contract
       if (proj.customer_id) {
-        const { data: custData } = await supabase.from('customers').select('name, email, phone, address').eq('id', proj.customer_id).maybeSingle()
+        const { data: custData, error: custError } = await supabase.from('customers').select('name, email, phone, address').eq('id', proj.customer_id).single()
         if (custData) {
-          if (!proj.customer_name) proj.customer_name = custData.name
+          proj.customer_name = custData.name
           proj.customer_email = custData.email
-          proj.customer_phone = custData.phone
-          proj.customer_address = custData.address
+          proj.customer_phone = custData.phone // NEW
+          proj.customer_address = custData.address // NEW
         }
       }
 
@@ -155,39 +157,90 @@ export default function CustomerPortal() {
     setIsApproving(true)
     
     try {
-      // 1. Prepare the Contract Text
-      const contractContent = `SIGNED CONTRACT\n\nProject: ${project.name}\nCustomer: ${signatureName}\nEmail: ${project.customer_email || 'Not Provided'}\nPhone: ${project.customer_phone || 'Not Provided'}\nProperty Address: ${project.customer_address || 'Not Provided'}\nDate: ${new Date().toLocaleString()}\n\nApproved Subtotal: $${dynamicSubtotal.toLocaleString(undefined, {minimumFractionDigits: 2})}\nGST (5%): $${dynamicGST.toLocaleString(undefined, {minimumFractionDigits: 2})}\nGrand Total: $${dynamicTotal.toLocaleString(undefined, {minimumFractionDigits: 2})}\n\n${CONTRACT_TERMS}`;
+      // NEW: Added full customer details to the contract generated text file
+      const contractContent = `SIGNED CONTRACT\n\nProject: ${project.name}\nCustomer: ${signatureName}\nEmail: ${project.customer_email || 'N/A'}\nPhone: ${project.customer_phone || 'N/A'}\nAddress: ${project.customer_address || 'N/A'}\nDate: ${new Date().toLocaleString()}\n\nApproved Subtotal: $${dynamicSubtotal.toLocaleString(undefined, {minimumFractionDigits: 2})}\nGST (5%): $${dynamicGST.toLocaleString(undefined, {minimumFractionDigits: 2})}\nGrand Total: $${dynamicTotal.toLocaleString(undefined, {minimumFractionDigits: 2})}\n\n${CONTRACT_TERMS}`;
+      const blob = new Blob([contractContent], { type: 'text/plain' });
+      const fileName = `${project.id}/Signed_Contract_${Date.now()}.txt`;
       
-      // 2. Prepare the Line Items
-      const updatedLineItems = lineItems.map(item => ({
-        id: item.id,
-        status: checkedItems[item.id] ? 'approved' : 'rejected'
-      }))
+      const { error: uploadError } = await supabase.storage.from('project-files').upload(fileName, blob);
+      if (uploadError) throw uploadError;
 
-      // 3. NEW: Delegate ALL heavy lifting securely to the backend!
-      const response = await fetch('https://pavingstone-chatbot.onrender.com/api/approve-estimate', {
+      const { data: urlData } = supabase.storage.from('project-files').getPublicUrl(fileName);
+      const contractUrl = urlData.publicUrl;
+
+      await supabase.from('project_files').insert({
+        project_id: project.id,
+        file_name: `Signed_Contract_${signatureName.replace(/\s+/g, '_')}.txt`,
+        file_url: contractUrl,
+        file_type: 'document'
+      });
+
+      let newStartDate = new Date();
+      newStartDate.setDate(newStartDate.getDate() + 1); 
+      
+      const { data: lastProjects } = await supabase
+        .from('projects')
+        .select('start_date, duration_days')
+        .in('status', ['Scheduled', 'In Progress'])
+        .order('start_date', { ascending: false })
+        .limit(1);
+
+      if (lastProjects && lastProjects.length > 0 && lastProjects[0].start_date) {
+        const lastStart = new Date(lastProjects[0].start_date);
+        const duration = lastProjects[0].duration_days || 1;
+        newStartDate = addWorkDays(lastStart, duration);
+      } else {
+        while (!isWorkDay(newStartDate)) {
+          newStartDate.setDate(newStartDate.getDate() + 1);
+        }
+      }
+
+      const updates = lineItems.map(item => {
+        return supabase.from('project_line_items').update({
+          status: checkedItems[item.id] ? 'approved' : 'rejected'
+        }).eq('id', item.id)
+      })
+      await Promise.all(updates)
+
+      const { error: statusError } = await supabase
+        .from('projects')
+        .update({ 
+          status: 'Scheduled',
+          start_date: newStartDate.toISOString(),
+          estimate: dynamicSubtotal 
+        }) 
+        .eq('id', project.id)
+      if (statusError) throw statusError
+
+      let clientEmail = project.customer_email;
+      if (!clientEmail && project.customer_id) {
+        const { data: cData } = await supabase.from('customers').select('email').eq('id', project.customer_id).single();
+        if (cData?.email) clientEmail = cData.email;
+      }
+      const formattedStartDate = format(newStartDate, 'MMMM do, yyyy');
+
+      await fetch('https://pavingstone-chatbot.onrender.com/api/approve-estimate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          projectId: project.id,
           customerName: signatureName,
-          customerEmail: project.customer_email,
+          customerEmail: clientEmail,
           projectName: project.name,
           subtotal: dynamicSubtotal,
           gst: dynamicGST,
           grandTotal: dynamicTotal,
           adminLink: `${window.location.origin}/projects/${project.id}`,
+          contractUrl: contractUrl,
           portalLink: window.location.href, 
-          contractText: contractContent,
-          lineItems: updatedLineItems
+          startDate: formattedStartDate
         })
-      });
+      })
 
-      const result = await response.json();
-
-      if (!response.ok) {
-        throw new Error(result.error || "Failed to process approval on the server.");
-      }
+      await supabase.from('project_comments').insert({
+        project_id: project.id,
+        content: `✅ The client (${signatureName}) has officially approved the estimate for $${dynamicTotal.toLocaleString(undefined, {minimumFractionDigits: 2})} and signed the contract.\n🗓️ Auto-scheduled for: ${formattedStartDate}\n💰 The client has been reminded to send their $500 deposit.`,
+        is_from_client: true
+      })
 
       alert("Thank you! Your project has been approved and scheduled. Please remember to send your $500 deposit to adam@pavingstone.pro to secure your spot.")
       window.location.reload() 
@@ -263,51 +316,16 @@ export default function CustomerPortal() {
           
           <div className={`${isEstimatePhase ? 'md:col-span-3 text-center items-center' : 'md:col-span-2'} bg-white/70 backdrop-blur-2xl rounded-[2.5rem] shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-white/80 p-8 flex flex-col justify-center relative overflow-hidden group hover:shadow-[0_15px_40px_rgb(0,0,0,0.08)] transition-all duration-500`}>
             <div className="absolute -right-10 -top-10 w-40 h-40 bg-gradient-to-br from-amber-400/20 to-orange-500/20 rounded-full blur-3xl group-hover:scale-150 transition-transform duration-700"></div>
-            
-            {isEstimatePhase ? (
-              <div className="relative z-10 w-full max-w-lg mx-auto flex flex-col items-center">
-                <p className="text-xs font-bold uppercase tracking-widest text-slate-400 mb-2">Prepared For</p>
-                <h2 className="text-3xl md:text-4xl font-black tracking-tight mb-4 text-slate-800">
-                  {displayName}
-                </h2>
-                <div className="w-full bg-white/50 rounded-2xl p-4 border border-white/80 shadow-sm text-left flex flex-col gap-3">
-                  {project.customer_address && (
-                    <div className="flex items-center gap-3 text-slate-700">
-                      <MapPin size={18} className="text-amber-500 shrink-0"/> 
-                      <span className="font-medium text-sm md:text-base">{project.customer_address}</span>
-                    </div>
-                  )}
-                  {project.customer_phone && (
-                    <div className="flex items-center gap-3 text-slate-700">
-                      <Phone size={18} className="text-amber-500 shrink-0"/> 
-                      <span className="font-medium text-sm md:text-base">{project.customer_phone}</span>
-                    </div>
-                  )}
-                  {project.customer_email && (
-                    <div className="flex items-center gap-3 text-slate-700">
-                      <Mail size={18} className="text-amber-500 shrink-0"/> 
-                      <span className="font-medium text-sm md:text-base">{project.customer_email}</span>
-                    </div>
-                  )}
-                  {!project.customer_address && !project.customer_phone && !project.customer_email && (
-                     <p className="text-slate-400 text-sm text-center italic">No additional contact info provided.</p>
-                  )}
-                </div>
-              </div>
-            ) : (
-              <>
-                 <p className="text-xs font-bold uppercase tracking-widest text-slate-400 mb-2">Current Status</p>
-                 <h2 className={`text-4xl md:text-5xl font-black tracking-tight mb-6 ${
-                  project.status === 'Completed' ? 'text-green-600' : 
-                  project.status === 'In Progress' ? 'text-amber-500' : 'text-slate-800'
-                 }`}>
-                  {project.status}
-                 </h2>
-                 <div className="relative z-10 w-full">
-                  <h3 className="text-2xl font-bold text-slate-900 mb-1">{project.name}</h3>
-                 </div>
-              </>
-            )}
+            {!isEstimatePhase && <p className="text-xs font-bold uppercase tracking-widest text-slate-400 mb-2">Current Status</p>}
+            <h2 className={`${isEstimatePhase ? 'text-3xl' : 'text-4xl md:text-5xl'} font-black tracking-tight mb-6 ${
+              project.status === 'Completed' ? 'text-green-600' : 
+              project.status === 'In Progress' ? 'text-amber-500' : 'text-slate-800'
+            }`}>
+              {isEstimatePhase ? `Prepared for ${displayName}` : project.status}
+            </h2>
+            <div className="relative z-10 w-full">
+              <h3 className="text-2xl font-bold text-slate-900 mb-1">{project.name}</h3>
+            </div>
           </div>
 
           {project.scope_of_work && isEstimatePhase && (
@@ -332,6 +350,7 @@ export default function CustomerPortal() {
              </div>
           )}
 
+          {/* THE PAVING STONE PROS DIFFERENCE (BENEFITS) */}
           {isEstimatePhase && (
             <div className="md:col-span-3 bg-white/70 backdrop-blur-2xl rounded-[2.5rem] shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-white/80 p-8 lg:p-10 relative overflow-hidden group">
               <div className="absolute -right-20 -top-20 w-64 h-64 bg-amber-500/10 rounded-full blur-3xl pointer-events-none"></div>
@@ -568,7 +587,7 @@ export default function CustomerPortal() {
 
       </div>
 
-      {/* SIGNATURE MODAL */}
+      {/* FIXED UX MODAL (Paper View for Readability) */}
       {showContractModal && (
         <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-md z-50 flex items-center justify-center p-2 sm:p-6 animate-in fade-in duration-300">
           <div className="bg-white w-full max-w-4xl rounded-[2.5rem] shadow-2xl flex flex-col h-[95vh] md:h-[85vh] overflow-hidden animate-in zoom-in-95 duration-300">
@@ -588,7 +607,12 @@ export default function CustomerPortal() {
                 
                 <div className="prose prose-slate max-w-none text-slate-700 font-medium whitespace-pre-wrap leading-relaxed bg-white p-6 md:p-12 rounded-3xl border border-slate-200 shadow-sm text-base md:text-lg">
                   <div className="font-serif italic text-slate-500 mb-8 border-b pb-4">
-                    Agreement for: {project.name}
+                    {/* NEW: Added customer info to the visual contract preview */}
+                    <p className="font-bold text-slate-700 text-xl mb-2">Agreement for: {project.name}</p>
+                    <p>Customer: {signatureName || project.customer_name || 'Pending Signature'}</p>
+                    <p>Email: {project.customer_email || 'N/A'}</p>
+                    <p>Phone: {project.customer_phone || 'N/A'}</p>
+                    <p>Address: {project.customer_address || 'N/A'}</p>
                   </div>
                   {CONTRACT_TERMS}
                 </div>
