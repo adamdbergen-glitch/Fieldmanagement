@@ -70,14 +70,14 @@ export default function CustomerPortal() {
       
       let proj = data[0]
       
-      // NEW: Fetching ALL customer data (email, phone, address) to inject into the contract
+      // NEW: ALWAYS fetch customer data if we have an ID to guarantee we get the phone and address
       if (proj.customer_id) {
         const { data: custData, error: custError } = await supabase.from('customers').select('name, email, phone, address').eq('id', proj.customer_id).single()
         if (custData) {
-          proj.customer_name = custData.name
-          proj.customer_email = custData.email
-          proj.customer_phone = custData.phone // NEW
-          proj.customer_address = custData.address // NEW
+          proj.customer_name = custData.name || proj.customer_name
+          proj.customer_email = custData.email || proj.customer_email
+          proj.customer_phone = custData.phone 
+          proj.customer_address = custData.address 
         }
       }
 
@@ -157,7 +157,7 @@ export default function CustomerPortal() {
     setIsApproving(true)
     
     try {
-      // NEW: Added full customer details to the contract generated text file
+      // Create the text contract with all fetched details
       const contractContent = `SIGNED CONTRACT\n\nProject: ${project.name}\nCustomer: ${signatureName}\nEmail: ${project.customer_email || 'N/A'}\nPhone: ${project.customer_phone || 'N/A'}\nAddress: ${project.customer_address || 'N/A'}\nDate: ${new Date().toLocaleString()}\n\nApproved Subtotal: $${dynamicSubtotal.toLocaleString(undefined, {minimumFractionDigits: 2})}\nGST (5%): $${dynamicGST.toLocaleString(undefined, {minimumFractionDigits: 2})}\nGrand Total: $${dynamicTotal.toLocaleString(undefined, {minimumFractionDigits: 2})}\n\n${CONTRACT_TERMS}`;
       const blob = new Blob([contractContent], { type: 'text/plain' });
       const fileName = `${project.id}/Signed_Contract_${Date.now()}.txt`;
@@ -602,12 +602,12 @@ export default function CustomerPortal() {
               </button>
             </div>
 
+            {/* NEW: Combined Contract Text and Signature into the same scrolling container */}
             <div className="p-4 md:p-10 overflow-y-auto flex-1 bg-slate-50/50">
               <div className="max-w-2xl mx-auto space-y-6">
                 
                 <div className="prose prose-slate max-w-none text-slate-700 font-medium whitespace-pre-wrap leading-relaxed bg-white p-6 md:p-12 rounded-3xl border border-slate-200 shadow-sm text-base md:text-lg">
                   <div className="font-serif italic text-slate-500 mb-8 border-b pb-4">
-                    {/* NEW: Added customer info to the visual contract preview */}
                     <p className="font-bold text-slate-700 text-xl mb-2">Agreement for: {project.name}</p>
                     <p>Customer: {signatureName || project.customer_name || 'Pending Signature'}</p>
                     <p>Email: {project.customer_email || 'N/A'}</p>
