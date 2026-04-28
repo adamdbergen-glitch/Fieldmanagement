@@ -56,7 +56,7 @@ export default function CustomerPortal() {
   
   const [showContractModal, setShowContractModal] = useState(false)
   
-  // NEW: Robust State for Contract Signature & Contact Details
+  // State for signature fields
   const [signatureName, setSignatureName] = useState('')
   const [signatureEmail, setSignatureEmail] = useState('')
   const [signaturePhone, setSignaturePhone] = useState('')
@@ -70,47 +70,15 @@ export default function CustomerPortal() {
   const { data: project, isLoading, error } = useQuery({
     queryKey: ['portal_project', token],
     queryFn: async () => {
-      let proj = null;
-
-      // 1. Try to fetch securely via RPC first
-      try {
-        const { data, error } = await supabase.rpc('get_project_by_token', { token_input: token })
-        if (!error && data && data.length > 0) {
-          proj = data[0]
-        }
-      } catch (e) {
-        console.warn("RPC fetch failed, using fallback...")
-      }
-
-      // 2. BULLETPROOF FALLBACK: If RPC is broken, query the table directly
-      if (!proj) {
-        const { data: fallbackData, error: fallbackError } = await supabase
-          .from('projects')
-          .select('*')
-          .eq('access_token', token)
-          .single()
-          
-        if (fallbackError || !fallbackData) throw new Error("Project Not Found")
-        proj = fallbackData
-      }
+      // Clean, single RPC call using our newly upgraded database function
+      const { data, error } = await supabase.rpc('get_project_by_token', { token_input: token })
       
-      // 3. Try to fetch Customer Details explicitly
-      if (proj.customer_id) {
-        const { data: custData } = await supabase
-          .from('customers')
-          .select('name, email, phone, address')
-          .eq('id', proj.customer_id)
-          .single()
+      if (error) throw error
+      if (!data || data.length === 0) throw new Error("Project Not Found")
+      
+      let proj = data[0]
 
-        if (custData) {
-          proj.customer_name = custData.name || proj.customer_name
-          proj.customer_email = custData.email || proj.customer_email
-          proj.customer_phone = custData.phone || ''
-          proj.customer_address = custData.address || ''
-        }
-      }
-
-      // 4. Fallback name extraction from Lead title
+      // Extract Name if missing
       if (!proj.customer_name && proj.name && proj.name.startsWith("Lead: ")) {
         proj.customer_name = proj.name.replace("Lead: ", "").trim();
       }
@@ -121,8 +89,7 @@ export default function CustomerPortal() {
     }
   })
 
-  // NEW: Inject whatever data we successfully fetched into the signature fields
-  // If the database blocked it, the fields remain blank for the customer to fill out.
+  // Pre-fill the signature fields perfectly from the backend
   useEffect(() => {
     if (project) {
       setSignatureName(project.customer_name || '')
@@ -193,7 +160,6 @@ export default function CustomerPortal() {
   }
 
   const handleApprove = async () => {
-    // Block if fields are empty
     if (!signatureName.trim() || !signatureEmail.trim() || !signaturePhone.trim() || !signatureAddress.trim()) {
       return alert("Please fill out all contact fields to approve and sign the contract.")
     }
@@ -202,7 +168,6 @@ export default function CustomerPortal() {
     setIsApproving(true)
     
     try {
-      // NEW: Compile the text contract using the guaranteed input fields
       const contractContent = `SIGNED CONTRACT\n\nProject: ${project.name}\nCustomer: ${signatureName}\nEmail: ${signatureEmail}\nPhone: ${signaturePhone}\nAddress: ${signatureAddress}\nDate: ${new Date().toLocaleString()}\n\nApproved Subtotal: $${dynamicSubtotal.toLocaleString(undefined, {minimumFractionDigits: 2})}\nGST (5%): $${dynamicGST.toLocaleString(undefined, {minimumFractionDigits: 2})}\nGrand Total: $${dynamicTotal.toLocaleString(undefined, {minimumFractionDigits: 2})}\n\n${CONTRACT_TERMS}`;
       const blob = new Blob([contractContent], { type: 'text/plain' });
       const fileName = `${project.id}/Signed_Contract_${Date.now()}.txt`;
@@ -259,7 +224,7 @@ export default function CustomerPortal() {
 
       const formattedStartDate = format(newStartDate, 'MMMM do, yyyy');
 
-      // Update the customer profile in the background just to be safe
+      // Best effort update of the customer profile in the background
       if (project.customer_id) {
         supabase.from('customers').update({ 
           name: signatureName, 
@@ -684,7 +649,6 @@ export default function CustomerPortal() {
                     </div>
                   </div>
 
-                  {/* NEW: Explicit Input Form for Client Details */}
                   <div className="border-t border-slate-200 pt-6 mt-6">
                     <label className="block text-sm font-bold text-slate-800">9. CUSTOMER AUTHORIZATION & DETAILS</label>
                     <p className="text-xs text-slate-500 mb-4">Please confirm your contact details and type your full name to authorize construction.</p>
