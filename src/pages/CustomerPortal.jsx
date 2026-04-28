@@ -64,31 +64,13 @@ export default function CustomerPortal() {
   const { data: project, isLoading, error } = useQuery({
     queryKey: ['portal_project', token],
     queryFn: async () => {
+      // NEW: This RPC function now returns the phone and address securely, bypassing RLS
       const { data, error } = await supabase.rpc('get_project_by_token', { token_input: token })
       if (error) throw error
       if (!data || data.length === 0) return null
       
       let proj = data[0]
       
-      // NEW: Direct query to the customers table. Bypasses the 'projects' table
-      // which is likely blocked by RLS for public portal users.
-      if (proj.customer_id) {
-        const { data: custData, error: custError } = await supabase
-          .from('customers')
-          .select('name, email, phone, address')
-          .eq('id', proj.customer_id)
-          .single()
-
-        if (custData) {
-          proj.customer_name = custData.name || proj.customer_name
-          proj.customer_email = custData.email || proj.customer_email
-          proj.customer_phone = custData.phone || ''
-          proj.customer_address = custData.address || ''
-        } else {
-          console.error("Customer fetch error:", custError)
-        }
-      }
-
       if (!proj.customer_name && proj.name && proj.name.startsWith("Lead: ")) {
         proj.customer_name = proj.name.replace("Lead: ", "").trim();
       }
@@ -98,6 +80,13 @@ export default function CustomerPortal() {
       return proj
     }
   })
+
+  // Pre-fill signature name if we have it
+  useEffect(() => {
+    if (project && project.customer_name) {
+      setSignatureName(project.customer_name)
+    }
+  }, [project])
 
   const { data: files } = useQuery({
     queryKey: ['portal_files', project?.id],
@@ -165,6 +154,7 @@ export default function CustomerPortal() {
     setIsApproving(true)
     
     try {
+      // NEW: Securely injects the data pulled from the updated RPC function
       const contractContent = `SIGNED CONTRACT\n\nProject: ${project.name}\nCustomer: ${signatureName}\nEmail: ${project.customer_email || 'N/A'}\nPhone: ${project.customer_phone || 'N/A'}\nAddress: ${project.customer_address || 'N/A'}\nDate: ${new Date().toLocaleString()}\n\nApproved Subtotal: $${dynamicSubtotal.toLocaleString(undefined, {minimumFractionDigits: 2})}\nGST (5%): $${dynamicGST.toLocaleString(undefined, {minimumFractionDigits: 2})}\nGrand Total: $${dynamicTotal.toLocaleString(undefined, {minimumFractionDigits: 2})}\n\n${CONTRACT_TERMS}`;
       const blob = new Blob([contractContent], { type: 'text/plain' });
       const fileName = `${project.id}/Signed_Contract_${Date.now()}.txt`;
@@ -219,11 +209,6 @@ export default function CustomerPortal() {
         .eq('id', project.id)
       if (statusError) throw statusError
 
-      let clientEmail = project.customer_email;
-      if (!clientEmail && project.customer_id) {
-        const { data: cData } = await supabase.from('customers').select('email').eq('id', project.customer_id).single();
-        if (cData?.email) clientEmail = cData.email;
-      }
       const formattedStartDate = format(newStartDate, 'MMMM do, yyyy');
 
       await fetch('https://pavingstone-chatbot.onrender.com/api/approve-estimate', {
@@ -231,7 +216,7 @@ export default function CustomerPortal() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           customerName: signatureName,
-          customerEmail: clientEmail,
+          customerEmail: project.customer_email,
           projectName: project.name,
           subtotal: dynamicSubtotal,
           gst: dynamicGST,
