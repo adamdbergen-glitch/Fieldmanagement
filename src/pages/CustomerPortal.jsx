@@ -7,7 +7,6 @@ import {
   Hammer, MessageSquare, Image as ImageIcon, Send, DollarSign, Sparkles, Phone, Mail, LayoutDashboard, FileSignature, X, ListPlus
 } from 'lucide-react'
 import { format, parseISO, differenceInDays } from 'date-fns'
-import { addWorkDays, isWorkDay } from '../lib/dateUtils' 
 import { APP_CONFIG } from '../config' 
 
 const CONTRACT_TERMS = `THE PAVINGSTONE PROS CONTRACT 
@@ -70,7 +69,6 @@ export default function CustomerPortal() {
       
       let proj = data[0]
       
-      // NEW: Fetch all customer details using .maybeSingle() to prevent the 406 crash
       if (proj.customer_id) {
         const { data: custData } = await supabase.from('customers').select('name, email, phone, address').eq('id', proj.customer_id).maybeSingle()
         if (custData) {
@@ -157,90 +155,39 @@ export default function CustomerPortal() {
     setIsApproving(true)
     
     try {
-      // NEW: Added Property Address, Email, and Phone to the permanently saved contract text for legal records.
+      // 1. Prepare the Contract Text
       const contractContent = `SIGNED CONTRACT\n\nProject: ${project.name}\nCustomer: ${signatureName}\nEmail: ${project.customer_email || 'Not Provided'}\nPhone: ${project.customer_phone || 'Not Provided'}\nProperty Address: ${project.customer_address || 'Not Provided'}\nDate: ${new Date().toLocaleString()}\n\nApproved Subtotal: $${dynamicSubtotal.toLocaleString(undefined, {minimumFractionDigits: 2})}\nGST (5%): $${dynamicGST.toLocaleString(undefined, {minimumFractionDigits: 2})}\nGrand Total: $${dynamicTotal.toLocaleString(undefined, {minimumFractionDigits: 2})}\n\n${CONTRACT_TERMS}`;
-      const blob = new Blob([contractContent], { type: 'text/plain' });
-      const fileName = `${project.id}/Signed_Contract_${Date.now()}.txt`;
       
-      const { error: uploadError } = await supabase.storage.from('project-files').upload(fileName, blob);
-      if (uploadError) throw uploadError;
+      // 2. Prepare the Line Items
+      const updatedLineItems = lineItems.map(item => ({
+        id: item.id,
+        status: checkedItems[item.id] ? 'approved' : 'rejected'
+      }))
 
-      const { data: urlData } = supabase.storage.from('project-files').getPublicUrl(fileName);
-      const contractUrl = urlData.publicUrl;
-
-      await supabase.from('project_files').insert({
-        project_id: project.id,
-        file_name: `Signed_Contract_${signatureName.replace(/\s+/g, '_')}.txt`,
-        file_url: contractUrl,
-        file_type: 'document'
+      // 3. NEW: Delegate ALL heavy lifting securely to the backend!
+      const response = await fetch('https://pavingstone-chatbot.onrender.com/api/approve-estimate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          projectId: project.id,
+          customerName: signatureName,
+          customerEmail: project.customer_email,
+          projectName: project.name,
+          subtotal: dynamicSubtotal,
+          gst: dynamicGST,
+          grandTotal: dynamicTotal,
+          adminLink: `${window.location.origin}/projects/${project.id}`,
+          portalLink: window.location.href, 
+          contractText: contractContent,
+          lineItems: updatedLineItems
+        })
       });
 
-      let newStartDate = new Date();
-      newStartDate.setDate(newStartDate.getDate() + 1); 
-      
-      const { data: lastProjects } = await supabase
-        .from('projects')
-        .select('start_date, duration_days')
-        .in('status', ['Scheduled', 'In Progress'])
-        .order('start_date', { ascending: false })
-        .limit(1);
+      const result = await response.json();
 
-      if (lastProjects && lastProjects.length > 0 && lastProjects[0].start_date) {
-        const lastStart = new Date(lastProjects[0].start_date);
-        const duration = lastProjects[0].duration_days || 1;
-        newStartDate = addWorkDays(lastStart, duration);
-      } else {
-        while (!isWorkDay(newStartDate)) {
-          newStartDate.setDate(newStartDate.getDate() + 1);
-        }
+      if (!response.ok) {
+        throw new Error(result.error || "Failed to process approval on the server.");
       }
-
-      const updates = lineItems.map(item => {
-        return supabase.from('project_line_items').update({
-          status: checkedItems[item.id] ? 'approved' : 'rejected'
-        }).eq('id', item.id)
-      })
-      await Promise.all(updates)
-
-      const formattedStartDate = format(newStartDate, 'MMMM do, yyyy');
-
-      const { error: statusError } = await supabase
-        .from('projects')
-        .update({ 
-          status: 'Scheduled',
-          start_date: newStartDate.toISOString(),
-          estimate: dynamicSubtotal 
-        }) 
-        .eq('id', project.id)
-      if (statusError) throw statusError
-
-      // NEW: Wrap the notification ping in try/catch to protect the frontend success flow
-      try {
-        await fetch('https://pavingstone-chatbot.onrender.com/api/approve-estimate', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            customerName: signatureName,
-            customerEmail: project.customer_email, // Uses the email pulled from the customer profile
-            projectName: project.name,
-            subtotal: dynamicSubtotal,
-            gst: dynamicGST,
-            grandTotal: dynamicTotal,
-            adminLink: `${window.location.origin}/projects/${project.id}`,
-            contractUrl: contractUrl,
-            portalLink: window.location.href, 
-            startDate: formattedStartDate
-          })
-        });
-      } catch (notifyErr) {
-        console.warn("Email notification failed to send, but database was updated:", notifyErr);
-      }
-
-      await supabase.from('project_comments').insert({
-        project_id: project.id,
-        content: `✅ The client (${signatureName}) has officially approved the estimate for $${dynamicTotal.toLocaleString(undefined, {minimumFractionDigits: 2})} and signed the contract.\n🗓️ Auto-scheduled for: ${formattedStartDate}\n💰 The client has been reminded to send their $500 deposit.`,
-        is_from_client: true
-      })
 
       alert("Thank you! Your project has been approved and scheduled. Please remember to send your $500 deposit to adam@pavingstone.pro to secure your spot.")
       window.location.reload() 
@@ -317,7 +264,6 @@ export default function CustomerPortal() {
           <div className={`${isEstimatePhase ? 'md:col-span-3 text-center items-center' : 'md:col-span-2'} bg-white/70 backdrop-blur-2xl rounded-[2.5rem] shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-white/80 p-8 flex flex-col justify-center relative overflow-hidden group hover:shadow-[0_15px_40px_rgb(0,0,0,0.08)] transition-all duration-500`}>
             <div className="absolute -right-10 -top-10 w-40 h-40 bg-gradient-to-br from-amber-400/20 to-orange-500/20 rounded-full blur-3xl group-hover:scale-150 transition-transform duration-700"></div>
             
-            {/* NEW: Updated the "Prepared For" section to display full customer info legally binding the project */}
             {isEstimatePhase ? (
               <div className="relative z-10 w-full max-w-lg mx-auto flex flex-col items-center">
                 <p className="text-xs font-bold uppercase tracking-widest text-slate-400 mb-2">Prepared For</p>
@@ -386,7 +332,6 @@ export default function CustomerPortal() {
              </div>
           )}
 
-          {/* THE PAVING STONE PROS DIFFERENCE (BENEFITS) */}
           {isEstimatePhase && (
             <div className="md:col-span-3 bg-white/70 backdrop-blur-2xl rounded-[2.5rem] shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-white/80 p-8 lg:p-10 relative overflow-hidden group">
               <div className="absolute -right-20 -top-20 w-64 h-64 bg-amber-500/10 rounded-full blur-3xl pointer-events-none"></div>
