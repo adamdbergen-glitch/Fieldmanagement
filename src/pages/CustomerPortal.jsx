@@ -55,7 +55,13 @@ export default function CustomerPortal() {
   const [feedbackSent, setFeedbackSent] = useState(false)
   
   const [showContractModal, setShowContractModal] = useState(false)
+  
+  // NEW: Robust State for Contract Signature & Contact Details
   const [signatureName, setSignatureName] = useState('')
+  const [signatureEmail, setSignatureEmail] = useState('')
+  const [signaturePhone, setSignaturePhone] = useState('')
+  const [signatureAddress, setSignatureAddress] = useState('')
+  
   const [isApproving, setIsApproving] = useState(false)
   
   const [checkedItems, setCheckedItems] = useState({})
@@ -64,27 +70,65 @@ export default function CustomerPortal() {
   const { data: project, isLoading, error } = useQuery({
     queryKey: ['portal_project', token],
     queryFn: async () => {
-      // NEW: This RPC function now returns the phone and address securely, bypassing RLS
-      const { data, error } = await supabase.rpc('get_project_by_token', { token_input: token })
-      if (error) throw error
-      if (!data || data.length === 0) return null
+      let proj = null;
+
+      // 1. Try to fetch securely via RPC first
+      try {
+        const { data, error } = await supabase.rpc('get_project_by_token', { token_input: token })
+        if (!error && data && data.length > 0) {
+          proj = data[0]
+        }
+      } catch (e) {
+        console.warn("RPC fetch failed, using fallback...")
+      }
+
+      // 2. BULLETPROOF FALLBACK: If RPC is broken, query the table directly
+      if (!proj) {
+        const { data: fallbackData, error: fallbackError } = await supabase
+          .from('projects')
+          .select('*')
+          .eq('access_token', token)
+          .single()
+          
+        if (fallbackError || !fallbackData) throw new Error("Project Not Found")
+        proj = fallbackData
+      }
       
-      let proj = data[0]
-      
+      // 3. Try to fetch Customer Details explicitly
+      if (proj.customer_id) {
+        const { data: custData } = await supabase
+          .from('customers')
+          .select('name, email, phone, address')
+          .eq('id', proj.customer_id)
+          .single()
+
+        if (custData) {
+          proj.customer_name = custData.name || proj.customer_name
+          proj.customer_email = custData.email || proj.customer_email
+          proj.customer_phone = custData.phone || ''
+          proj.customer_address = custData.address || ''
+        }
+      }
+
+      // 4. Fallback name extraction from Lead title
       if (!proj.customer_name && proj.name && proj.name.startsWith("Lead: ")) {
         proj.customer_name = proj.name.replace("Lead: ", "").trim();
       }
 
-      supabase.rpc('log_portal_view', { p_token: token }).then()
+      supabase.rpc('log_portal_view', { p_token: token }).catch(() => {})
 
       return proj
     }
   })
 
-  // Pre-fill signature name if we have it
+  // NEW: Inject whatever data we successfully fetched into the signature fields
+  // If the database blocked it, the fields remain blank for the customer to fill out.
   useEffect(() => {
-    if (project && project.customer_name) {
-      setSignatureName(project.customer_name)
+    if (project) {
+      setSignatureName(project.customer_name || '')
+      setSignatureEmail(project.customer_email || '')
+      setSignaturePhone(project.customer_phone || '')
+      setSignatureAddress(project.customer_address || project.address || '')
     }
   }, [project])
 
@@ -149,13 +193,17 @@ export default function CustomerPortal() {
   }
 
   const handleApprove = async () => {
-    if (!signatureName.trim()) return alert("Please type your full name to sign the contract.")
+    // Block if fields are empty
+    if (!signatureName.trim() || !signatureEmail.trim() || !signaturePhone.trim() || !signatureAddress.trim()) {
+      return alert("Please fill out all contact fields to approve and sign the contract.")
+    }
     if (dynamicSubtotal <= 0) return alert("You must select at least one item to approve the contract.")
+    
     setIsApproving(true)
     
     try {
-      // NEW: Securely injects the data pulled from the updated RPC function
-      const contractContent = `SIGNED CONTRACT\n\nProject: ${project.name}\nCustomer: ${signatureName}\nEmail: ${project.customer_email || 'N/A'}\nPhone: ${project.customer_phone || 'N/A'}\nAddress: ${project.customer_address || 'N/A'}\nDate: ${new Date().toLocaleString()}\n\nApproved Subtotal: $${dynamicSubtotal.toLocaleString(undefined, {minimumFractionDigits: 2})}\nGST (5%): $${dynamicGST.toLocaleString(undefined, {minimumFractionDigits: 2})}\nGrand Total: $${dynamicTotal.toLocaleString(undefined, {minimumFractionDigits: 2})}\n\n${CONTRACT_TERMS}`;
+      // NEW: Compile the text contract using the guaranteed input fields
+      const contractContent = `SIGNED CONTRACT\n\nProject: ${project.name}\nCustomer: ${signatureName}\nEmail: ${signatureEmail}\nPhone: ${signaturePhone}\nAddress: ${signatureAddress}\nDate: ${new Date().toLocaleString()}\n\nApproved Subtotal: $${dynamicSubtotal.toLocaleString(undefined, {minimumFractionDigits: 2})}\nGST (5%): $${dynamicGST.toLocaleString(undefined, {minimumFractionDigits: 2})}\nGrand Total: $${dynamicTotal.toLocaleString(undefined, {minimumFractionDigits: 2})}\n\n${CONTRACT_TERMS}`;
       const blob = new Blob([contractContent], { type: 'text/plain' });
       const fileName = `${project.id}/Signed_Contract_${Date.now()}.txt`;
       
@@ -211,12 +259,22 @@ export default function CustomerPortal() {
 
       const formattedStartDate = format(newStartDate, 'MMMM do, yyyy');
 
+      // Update the customer profile in the background just to be safe
+      if (project.customer_id) {
+        supabase.from('customers').update({ 
+          name: signatureName, 
+          email: signatureEmail, 
+          phone: signaturePhone, 
+          address: signatureAddress 
+        }).eq('id', project.customer_id).then()
+      }
+
       await fetch('https://pavingstone-chatbot.onrender.com/api/approve-estimate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           customerName: signatureName,
-          customerEmail: project.customer_email,
+          customerEmail: signatureEmail,
           projectName: project.name,
           subtotal: dynamicSubtotal,
           gst: dynamicGST,
@@ -587,25 +645,24 @@ export default function CustomerPortal() {
             <div className="p-6 md:p-8 border-b border-slate-100 flex justify-between items-center bg-white shrink-0">
               <div>
                 <h3 className="font-black text-slate-900 text-2xl tracking-tight">Contract & Terms</h3>
-                <p className="text-sm text-slate-500 mt-1">Please review the details below before signing.</p>
+                <p className="text-sm text-slate-500 mt-1">Please confirm your details below before signing.</p>
               </div>
               <button onClick={() => setShowContractModal(false)} className="w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center text-slate-400 hover:text-slate-800 transition-colors shadow-sm">
                 <X size={24} />
               </button>
             </div>
 
-            {/* NEW: Combined Contract Text and Signature into the same scrolling container */}
+            {/* Combined Contract Text and Signature into the same scrolling container */}
             <div className="p-4 md:p-10 overflow-y-auto flex-1 bg-slate-50/50">
               <div className="max-w-2xl mx-auto space-y-6">
                 
                 <div className="prose prose-slate max-w-none text-slate-700 font-medium whitespace-pre-wrap leading-relaxed bg-white p-6 md:p-12 rounded-3xl border border-slate-200 shadow-sm text-base md:text-lg">
                   <div className="font-serif italic text-slate-500 mb-8 border-b pb-4">
-                    {/* NEW: Added customer info to the visual contract preview */}
                     <p className="font-bold text-slate-700 text-xl mb-2">Agreement for: {project.name}</p>
-                    <p>Customer: {signatureName || project.customer_name || 'Pending Signature'}</p>
-                    <p>Email: {project.customer_email || 'N/A'}</p>
-                    <p>Phone: {project.customer_phone || 'N/A'}</p>
-                    <p>Address: {project.customer_address || 'N/A'}</p>
+                    <p>Customer: {signatureName || 'Pending Signature'}</p>
+                    <p>Email: {signatureEmail || 'N/A'}</p>
+                    <p>Phone: {signaturePhone || 'N/A'}</p>
+                    <p>Address: {signatureAddress || 'N/A'}</p>
                   </div>
                   {CONTRACT_TERMS}
                 </div>
@@ -627,32 +684,71 @@ export default function CustomerPortal() {
                     </div>
                   </div>
 
-                  <div className="flex flex-col md:flex-row md:items-end justify-between mb-4 border-t border-slate-200 pt-4 gap-4">
-                    <div className="flex-1">
-                      <label className="block text-sm font-bold text-slate-800">9. CUSTOMER AUTHORIZATION</label>
-                      <p className="text-xs text-slate-500 mb-2">By typing your full name below, you authorize construction.</p>
-                      <input 
-                        type="text" 
-                        placeholder="Type your full legal name to sign..." 
-                        className="w-full p-4 border-2 border-slate-200 rounded-xl focus:border-green-500 focus:ring-4 focus:ring-green-500/20 outline-none font-bold text-slate-900 font-serif"
-                        value={signatureName}
-                        onChange={e => setSignatureName(e.target.value)}
-                      />
+                  {/* NEW: Explicit Input Form for Client Details */}
+                  <div className="border-t border-slate-200 pt-6 mt-6">
+                    <label className="block text-sm font-bold text-slate-800">9. CUSTOMER AUTHORIZATION & DETAILS</label>
+                    <p className="text-xs text-slate-500 mb-4">Please confirm your contact details and type your full name to authorize construction.</p>
+                    
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                      <div>
+                        <label className="text-[10px] uppercase font-bold text-slate-400">Full Legal Name *</label>
+                        <input 
+                          type="text" 
+                          placeholder="e.g. John Doe" 
+                          className="w-full p-3 border-2 border-slate-200 rounded-xl focus:border-green-500 focus:ring-2 focus:ring-green-500/20 outline-none font-bold text-slate-900"
+                          value={signatureName}
+                          onChange={e => setSignatureName(e.target.value)}
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[10px] uppercase font-bold text-slate-400">Email Address *</label>
+                        <input 
+                          type="email" 
+                          placeholder="john@example.com" 
+                          className="w-full p-3 border-2 border-slate-200 rounded-xl focus:border-green-500 focus:ring-2 focus:ring-green-500/20 outline-none text-slate-900"
+                          value={signatureEmail}
+                          onChange={e => setSignatureEmail(e.target.value)}
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[10px] uppercase font-bold text-slate-400">Phone Number *</label>
+                        <input 
+                          type="tel" 
+                          placeholder="(204) 555-0123" 
+                          className="w-full p-3 border-2 border-slate-200 rounded-xl focus:border-green-500 focus:ring-2 focus:ring-green-500/20 outline-none text-slate-900"
+                          value={signaturePhone}
+                          onChange={e => setSignaturePhone(e.target.value)}
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[10px] uppercase font-bold text-slate-400">Property Address *</label>
+                        <input 
+                          type="text" 
+                          placeholder="123 Main St, Winnipeg" 
+                          className="w-full p-3 border-2 border-slate-200 rounded-xl focus:border-green-500 focus:ring-2 focus:ring-green-500/20 outline-none text-slate-900"
+                          value={signatureAddress}
+                          onChange={e => setSignatureAddress(e.target.value)}
+                        />
+                      </div>
                     </div>
-                    <div className="text-left md:text-right shrink-0">
-                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block">Approved Total</span>
-                      <span className="text-3xl font-black text-green-600 block mt-1">Total: ${dynamicTotal.toLocaleString(undefined, {minimumFractionDigits: 2})}</span>
+
+                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                      <div className="text-left shrink-0">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block">Approved Total</span>
+                        <span className="text-3xl font-black text-green-600 block mt-1">Total: ${dynamicTotal.toLocaleString(undefined, {minimumFractionDigits: 2})}</span>
+                      </div>
+                      
+                      <button 
+                        onClick={handleApprove}
+                        disabled={!signatureName.trim() || !signatureEmail.trim() || !signaturePhone.trim() || !signatureAddress.trim() || isApproving}
+                        className="w-full md:w-auto flex-1 bg-green-600 hover:bg-green-500 text-white font-bold py-4 px-8 rounded-xl transition-all shadow-xl disabled:opacity-50 disabled:shadow-none flex items-center justify-center gap-2 text-lg hover:-translate-y-1"
+                      >
+                        {isApproving ? <Loader2 size={24} className="animate-spin" /> : <CheckCircle2 size={24} />}
+                        Sign & Schedule Project
+                      </button>
                     </div>
                   </div>
 
-                  <button 
-                    onClick={handleApprove}
-                    disabled={!signatureName.trim() || isApproving}
-                    className="w-full bg-green-600 hover:bg-green-500 text-white font-bold py-4 px-8 rounded-xl transition-all shadow-xl disabled:opacity-50 disabled:shadow-none flex items-center justify-center gap-2 text-xl hover:-translate-y-1"
-                  >
-                    {isApproving ? <Loader2 size={24} className="animate-spin" /> : <CheckCircle2 size={24} />}
-                    Sign & Schedule Project
-                  </button>
                 </div>
                 
               </div>
