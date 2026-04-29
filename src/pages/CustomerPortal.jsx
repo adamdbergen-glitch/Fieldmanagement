@@ -142,7 +142,7 @@ export default function CustomerPortal() {
       logView();
 
       return proj
-    }, // <-- Notice this was fixed (removed the extra `},`)
+    },
     retry: false // Don't retry if it fails immediately so we can see the error
   })
 
@@ -226,95 +226,48 @@ export default function CustomerPortal() {
     setIsApproving(true)
     
     try {
-      // Generate the contract using the confirmed inputs from the screen
-      const contractContent = `SIGNED CONTRACT\n\nProject: ${project.name}\nCustomer: ${signatureName}\nEmail: ${signatureEmail}\nPhone: ${signaturePhone}\nAddress: ${signatureAddress}\nDate: ${new Date().toLocaleString()}\n\nApproved Subtotal: $${dynamicSubtotal.toLocaleString(undefined, {minimumFractionDigits: 2})}\nGST (5%): $${dynamicGST.toLocaleString(undefined, {minimumFractionDigits: 2})}\nGrand Total: $${dynamicTotal.toLocaleString(undefined, {minimumFractionDigits: 2})}\n\n${CONTRACT_TERMS}`;
-      const blob = new Blob([contractContent], { type: 'text/plain' });
-      const fileName = `${project.id}/Signed_Contract_${Date.now()}.txt`;
-      
-      const { error: uploadError } = await supabase.storage.from('project-files').upload(fileName, blob);
-      if (uploadError) throw uploadError;
-
-      const { data: urlData } = supabase.storage.from('project-files').getPublicUrl(fileName);
-      const contractUrl = urlData.publicUrl;
-
-      await supabase.from('project_files').insert({
-        project_id: project.id,
-        file_name: `Signed_Contract_${signatureName.replace(/\s+/g, '_')}.txt`,
-        file_url: contractUrl,
-        file_type: 'document'
-      });
-
-      let newStartDate = new Date();
-      newStartDate.setDate(newStartDate.getDate() + 1); 
-      
-      const { data: lastProjects } = await supabase
-        .from('projects')
-        .select('start_date, duration_days')
-        .in('status', ['Scheduled', 'In Progress'])
-        .order('start_date', { ascending: false })
-        .limit(1);
-
-      if (lastProjects && lastProjects.length > 0 && lastProjects[0].start_date) {
-        const lastStart = new Date(lastProjects[0].start_date);
-        const duration = lastProjects[0].duration_days || 1;
-        newStartDate = addWorkDays(lastStart, duration);
-      } else {
-        while (!isWorkDay(newStartDate)) {
-          newStartDate.setDate(newStartDate.getDate() + 1);
-        }
-      }
-
-      const updates = lineItems.map(item => {
-        return supabase.from('project_line_items').update({
-          status: checkedItems[item.id] ? 'approved' : 'rejected'
-        }).eq('id', item.id)
-      })
-      await Promise.all(updates)
-
-      const { error: statusError } = await supabase
-        .from('projects')
-        .update({ 
-          status: 'Scheduled',
-          start_date: newStartDate.toISOString(),
-          estimate: dynamicSubtotal 
-        }) 
-        .eq('id', project.id)
-      if (statusError) throw statusError
-
-      const formattedStartDate = format(newStartDate, 'MMMM do, yyyy');
-
-      // Best effort update of the customer profile in the background
+      // 1. Update the Customer Profile with the confirmed details
       if (project.customer_id) {
-        supabase.from('customers').update({ 
+        await supabase.from('customers').update({ 
           name: signatureName, 
           email: signatureEmail, 
           phone: signaturePhone, 
           address: signatureAddress 
-        }).eq('id', project.customer_id).then()
+        }).eq('id', project.customer_id);
       }
 
-      await fetch('https://pavingstone-chatbot.onrender.com/api/approve-estimate', {
+      // 2. Generate the contract text
+      const contractContent = `SIGNED CONTRACT\n\nProject: ${project.name}\nCustomer: ${signatureName}\nEmail: ${signatureEmail}\nPhone: ${signaturePhone}\nAddress: ${signatureAddress}\nDate: ${new Date().toLocaleString()}\n\nApproved Subtotal: $${dynamicSubtotal.toLocaleString(undefined, {minimumFractionDigits: 2})}\nGST (5%): $${dynamicGST.toLocaleString(undefined, {minimumFractionDigits: 2})}\nGrand Total: $${dynamicTotal.toLocaleString(undefined, {minimumFractionDigits: 2})}\n\n${CONTRACT_TERMS}`;
+
+      // 3. Prepare line items status array for the backend
+      const itemsPayload = lineItems.map(item => ({
+        id: item.id,
+        status: checkedItems[item.id] ? 'approved' : 'rejected'
+      }));
+
+      // 4. Send EVERYTHING to your Node backend to process securely
+      const response = await fetch('https://pavingstone-chatbot.onrender.com/api/approve-estimate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          projectId: project.id,
           customerName: signatureName,
           customerEmail: signatureEmail,
           projectName: project.name,
           subtotal: dynamicSubtotal,
           gst: dynamicGST,
           grandTotal: dynamicTotal,
-          adminLink: `${window.location.origin}/projects/${project.id}`,
-          contractUrl: contractUrl,
+          adminLink: `${window.location.origin}/#/projects/${project.id}`,
           portalLink: window.location.href, 
-          startDate: formattedStartDate
+          contractText: contractContent,
+          lineItems: itemsPayload
         })
-      })
+      });
 
-      await supabase.from('project_comments').insert({
-        project_id: project.id,
-        content: `✅ The client (${signatureName}) has officially approved the estimate for $${dynamicTotal.toLocaleString(undefined, {minimumFractionDigits: 2})} and signed the contract.\n🗓️ Auto-scheduled for: ${formattedStartDate}\n💰 The client has been reminded to send their $500 deposit.`,
-        is_from_client: true
-      })
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || "Failed to process approval on server.");
+      }
 
       alert("Thank you! Your project has been approved and scheduled. Please remember to send your $500 deposit to adam@pavingstone.pro to secure your spot.")
       window.location.reload() 
