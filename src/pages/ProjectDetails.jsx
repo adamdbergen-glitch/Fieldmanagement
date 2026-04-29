@@ -380,6 +380,7 @@ export default function ProjectDetails() {
                           <option value="In Progress">In Progress</option>
                           <option value="Completed">Completed</option>
                           <option value="Paused">Paused</option>
+                          <option value="Rejected">Rejected</option>
                        </select>
                      </div>
                      <div>
@@ -431,7 +432,13 @@ export default function ProjectDetails() {
                     )}
                   </div>
                   <div className="flex flex-wrap items-center gap-3 mt-2 text-sm">
-                    <span className={`px-2.5 py-0.5 rounded text-xs font-bold uppercase tracking-wide border ${project.status === 'Completed' ? 'bg-green-50 text-green-700 border-green-200' : 'bg-blue-50 text-blue-700 border-blue-200'}`}>{project.status}</span>
+                    <span className={`px-2.5 py-0.5 rounded text-xs font-bold uppercase tracking-wide border ${
+                      project.status === 'Completed' ? 'bg-green-50 text-green-700 border-green-200' : 
+                      project.status === 'Rejected' ? 'bg-slate-200 text-slate-800 border-slate-300' : 
+                      'bg-blue-50 text-blue-700 border-blue-200'
+                    }`}>
+                      {project.status}
+                    </span>
                     {project.start_date && (<span className="flex items-center gap-1 text-slate-500 font-medium text-xs"><Calendar size={14} /> {format(parseISO(project.start_date), 'MMM d')}</span>)}
                     {project.duration_days && (<span className="flex items-center gap-1 text-slate-500 font-medium text-xs"><Clock size={14} /> {project.duration_days} Day{project.duration_days > 1 ? 's' : ''}</span>)}
                   </div>
