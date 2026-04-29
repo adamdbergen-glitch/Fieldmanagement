@@ -59,7 +59,7 @@ export default function Calendar() {
       let query = supabase
         .from('projects')
         .select('*, customer:customers(name)')
-        .neq('status', 'Completed')
+        .in('status', ['New', 'Scheduled', 'In Progress', 'Paused']) // <-- UPDATED: Filters out Completed AND Rejected
 
       if (userProfile.role === 'crew') {
          const twoWeeksAgo = new Date()
