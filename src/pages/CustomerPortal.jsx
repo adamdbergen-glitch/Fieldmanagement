@@ -4,7 +4,7 @@ import { useQuery } from '@tanstack/react-query'
 import { supabase } from '../lib/supabase'
 import { 
   MapPin, Calendar, CheckCircle2, Circle, Clock, Loader2, 
-  Hammer, MessageSquare, Image as ImageIcon, Send, DollarSign, Sparkles, Phone, Mail, LayoutDashboard, FileSignature, X, ListPlus
+  Hammer, MessageSquare, Image as ImageIcon, Send, DollarSign, Sparkles, Phone, Mail, LayoutDashboard, FileSignature, X, ListPlus, Download
 } from 'lucide-react'
 import { format, parseISO, differenceInDays } from 'date-fns'
 import { addWorkDays, isWorkDay } from '../lib/dateUtils' 
@@ -500,7 +500,7 @@ export default function CustomerPortal() {
                   )}
 
                   {isEstimatePhase && (
-                    <div className="max-w-md mx-auto w-full">
+                    <div className="max-w-md mx-auto w-full space-y-3">
                       <button 
                         onClick={() => setShowContractModal(true)}
                         disabled={dynamicSubtotal <= 0 && lineItems?.length > 0}
@@ -508,6 +508,14 @@ export default function CustomerPortal() {
                       >
                         <FileSignature size={22} />
                         Review & Approve Contract
+                      </button>
+                      
+                      <button
+                        onClick={() => window.print()}
+                        className="w-full bg-white/10 hover:bg-white/20 text-white font-bold py-3 px-6 rounded-xl transition-all flex items-center justify-center gap-2"
+                      >
+                        <Download size={20} />
+                        Download / Print Estimate
                       </button>
                     </div>
                   )}
