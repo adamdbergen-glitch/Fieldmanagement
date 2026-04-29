@@ -127,7 +127,7 @@ export default function CustomerPortal() {
         }
       }
 
-if (!proj.customer_name && proj.name && proj.name.startsWith("Lead: ")) {
+      if (!proj.customer_name && proj.name && proj.name.startsWith("Lead: ")) {
         proj.customer_name = proj.name.replace("Lead: ", "").trim();
       }
 
@@ -142,8 +142,7 @@ if (!proj.customer_name && proj.name && proj.name.startsWith("Lead: ")) {
       logView();
 
       return proj
-    },
-    },
+    }, // <-- Notice this was fixed (removed the extra `},`)
     retry: false // Don't retry if it fails immediately so we can see the error
   })
 
