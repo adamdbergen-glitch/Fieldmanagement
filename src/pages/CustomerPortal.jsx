@@ -56,7 +56,6 @@ export default function CustomerPortal() {
   
   const [showContractModal, setShowContractModal] = useState(false)
   
-  // NEW: State for all signature/contact fields
   const [signatureName, setSignatureName] = useState('')
   const [signatureEmail, setSignatureEmail] = useState('')
   const [signaturePhone, setSignaturePhone] = useState('')
@@ -72,9 +71,15 @@ export default function CustomerPortal() {
     queryFn: async () => {
       let proj = null;
 
-      // ATTEMPT 1: The restored database function
+      // 1. Validate the token format so we don't throw invisible SQL errors
+      if (!token || token === 'null' || token === 'undefined') {
+        throw new Error("Invalid Link: The link you clicked is broken or missing the security token.")
+      }
+
+      // ATTEMPT 1: RPC Function
       try {
         const { data, error } = await supabase.rpc('get_project_by_token', { token_input: token })
+        if (error) console.warn("RPC Error:", error.message)
         if (!error && data && data.length > 0) {
           proj = data[0]
         }
@@ -82,7 +87,7 @@ export default function CustomerPortal() {
         console.warn("RPC fetch failed, using fallback...")
       }
 
-      // ATTEMPT 2: Fallback query. Uses .maybeSingle() to prevent 406 Errors
+      // ATTEMPT 2: Fallback query
       if (!proj) {
         const { data: fallbackData, error: fallbackError } = await supabase
           .from('projects')
@@ -90,23 +95,29 @@ export default function CustomerPortal() {
           .eq('access_token', token)
           .maybeSingle() 
           
+        if (fallbackError) {
+          console.error("Database Error:", fallbackError.message)
+          throw new Error("Database Error: " + fallbackError.message)
+        }
         if (!fallbackError && fallbackData) {
           proj = fallbackData
         }
       }
       
-      // If BOTH methods failed, the token is genuinely bad
+      // If BOTH methods failed
       if (!proj) {
-        throw new Error("Project Not Found")
+        throw new Error("Project Not Found: No project matches this security link.")
       }
       
-      // SAFELY ATTEMPT to get Customer Details. Uses .maybeSingle() to prevent 406 Errors
+      // Fetch Customer Details
       if (proj.customer_id) {
-        const { data: custData } = await supabase
+        const { data: custData, error: custError } = await supabase
           .from('customers')
           .select('*')
           .eq('id', proj.customer_id)
           .maybeSingle()
+
+        if (custError) console.warn("Customer Fetch Error:", custError.message)
 
         if (custData) {
           proj.customer_name = custData.name || proj.customer_name
@@ -123,7 +134,8 @@ export default function CustomerPortal() {
       supabase.rpc('log_portal_view', { p_token: token }).catch(() => {})
 
       return proj
-    }
+    },
+    retry: false // Don't retry if it fails immediately so we can see the error
   })
 
   // Pre-fill the signature fields if we successfully fetched the data
@@ -311,9 +323,10 @@ export default function CustomerPortal() {
   
   if (error || !project) return (
     <div className="min-h-screen flex flex-col items-center justify-center p-4 text-center">
-      <div className="bg-white/60 backdrop-blur-xl border border-white/60 p-10 rounded-[2.5rem] shadow-[0_8px_30px_rgb(0,0,0,0.04)]">
-        <h2 className="text-2xl font-black text-slate-900 mb-2">Project Not Found</h2>
-        <p className="text-slate-500 mb-6">The link may be invalid or expired.</p>
+      <div className="bg-white/60 backdrop-blur-xl border border-red-200 p-10 rounded-[2.5rem] shadow-xl">
+        <h2 className="text-2xl font-black text-slate-900 mb-2">Access Denied</h2>
+        <p className="text-red-500 font-bold mb-2">{error ? error.message : "Project Not Found"}</p>
+        <p className="text-slate-500 text-sm max-w-sm mx-auto">If the token in your URL says "null" or "undefined", you copied a broken link. Please return to the Admin Dashboard, refresh the page, and copy the new link.</p>
       </div>
     </div>
   )
