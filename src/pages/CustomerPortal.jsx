@@ -127,13 +127,22 @@ export default function CustomerPortal() {
         }
       }
 
-      if (!proj.customer_name && proj.name && proj.name.startsWith("Lead: ")) {
+if (!proj.customer_name && proj.name && proj.name.startsWith("Lead: ")) {
         proj.customer_name = proj.name.replace("Lead: ", "").trim();
       }
 
-      supabase.rpc('log_portal_view', { p_token: token }).catch(() => {})
+      // Safely log the view without crashing the page if it fails
+      const logView = async () => {
+        try {
+          await supabase.rpc('log_portal_view', { p_token: token });
+        } catch (err) {
+          console.warn("Could not log view:", err);
+        }
+      };
+      logView();
 
       return proj
+    },
     },
     retry: false // Don't retry if it fails immediately so we can see the error
   })
