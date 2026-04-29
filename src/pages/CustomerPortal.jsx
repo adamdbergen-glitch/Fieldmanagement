@@ -56,7 +56,7 @@ export default function CustomerPortal() {
   
   const [showContractModal, setShowContractModal] = useState(false)
   
-  // State for signature fields
+  // NEW: State for all signature/contact fields
   const [signatureName, setSignatureName] = useState('')
   const [signatureEmail, setSignatureEmail] = useState('')
   const [signaturePhone, setSignaturePhone] = useState('')
@@ -70,20 +70,52 @@ export default function CustomerPortal() {
   const { data: project, isLoading, error } = useQuery({
     queryKey: ['portal_project', token],
     queryFn: async () => {
-      // NEW: Call the completely new, conflict-free JSON function
-      const { data, error } = await supabase.rpc('get_portal_data', { p_token: token })
-      
-      if (error) {
-        console.error("Portal Fetch Error:", error);
-        throw error;
+      let proj = null;
+
+      // ATTEMPT 1: The restored database function
+      try {
+        const { data, error } = await supabase.rpc('get_project_by_token', { token_input: token })
+        if (!error && data && data.length > 0) {
+          proj = data[0]
+        }
+      } catch (e) {
+        console.warn("RPC fetch failed, using fallback...")
+      }
+
+      // ATTEMPT 2: Fallback query. Uses .maybeSingle() to prevent 406 Errors
+      if (!proj) {
+        const { data: fallbackData, error: fallbackError } = await supabase
+          .from('projects')
+          .select('*')
+          .eq('access_token', token)
+          .maybeSingle() 
+          
+        if (!fallbackError && fallbackData) {
+          proj = fallbackData
+        }
       }
       
-      if (!data) {
-        throw new Error("Project Not Found");
+      // If BOTH methods failed, the token is genuinely bad
+      if (!proj) {
+        throw new Error("Project Not Found")
       }
       
-      let proj = data; // Because the function returns JSON, data is perfectly mapped already
-      
+      // SAFELY ATTEMPT to get Customer Details. Uses .maybeSingle() to prevent 406 Errors
+      if (proj.customer_id) {
+        const { data: custData } = await supabase
+          .from('customers')
+          .select('*')
+          .eq('id', proj.customer_id)
+          .maybeSingle()
+
+        if (custData) {
+          proj.customer_name = custData.name || proj.customer_name
+          proj.customer_email = custData.email || proj.customer_email
+          proj.customer_phone = custData.phone || ''
+          proj.customer_address = custData.address || ''
+        }
+      }
+
       if (!proj.customer_name && proj.name && proj.name.startsWith("Lead: ")) {
         proj.customer_name = proj.name.replace("Lead: ", "").trim();
       }
@@ -94,7 +126,7 @@ export default function CustomerPortal() {
     }
   })
 
-  // Auto-fill the inputs once project data loads
+  // Pre-fill the signature fields if we successfully fetched the data
   useEffect(() => {
     if (project) {
       setSignatureName(project.customer_name || '')
@@ -165,6 +197,7 @@ export default function CustomerPortal() {
   }
 
   const handleApprove = async () => {
+    // Enforce that all customer details are provided before generating the contract
     if (!signatureName.trim() || !signatureEmail.trim() || !signaturePhone.trim() || !signatureAddress.trim()) {
       return alert("Please fill out all contact fields to approve and sign the contract.")
     }
@@ -173,6 +206,7 @@ export default function CustomerPortal() {
     setIsApproving(true)
     
     try {
+      // Generate the contract using the confirmed inputs from the screen
       const contractContent = `SIGNED CONTRACT\n\nProject: ${project.name}\nCustomer: ${signatureName}\nEmail: ${signatureEmail}\nPhone: ${signaturePhone}\nAddress: ${signatureAddress}\nDate: ${new Date().toLocaleString()}\n\nApproved Subtotal: $${dynamicSubtotal.toLocaleString(undefined, {minimumFractionDigits: 2})}\nGST (5%): $${dynamicGST.toLocaleString(undefined, {minimumFractionDigits: 2})}\nGrand Total: $${dynamicTotal.toLocaleString(undefined, {minimumFractionDigits: 2})}\n\n${CONTRACT_TERMS}`;
       const blob = new Blob([contractContent], { type: 'text/plain' });
       const fileName = `${project.id}/Signed_Contract_${Date.now()}.txt`;
@@ -229,6 +263,7 @@ export default function CustomerPortal() {
 
       const formattedStartDate = format(newStartDate, 'MMMM do, yyyy');
 
+      // Best effort update of the customer profile in the background
       if (project.customer_id) {
         supabase.from('customers').update({ 
           name: signatureName, 
