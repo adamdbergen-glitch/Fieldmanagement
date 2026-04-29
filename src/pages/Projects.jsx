@@ -93,6 +93,7 @@ export default function Projects() {
     if (s === 'in progress') return 'bg-amber-100 text-amber-800 border-amber-200'
     if (s === 'scheduled') return 'bg-blue-100 text-blue-700 border-blue-200'
     if (s === 'paused') return 'bg-red-100 text-red-700 border-red-200'
+    if (s === 'rejected') return 'bg-slate-200 text-slate-800 border-slate-300' // <-- NEW COLOR ADDED
     return 'bg-slate-100 text-slate-600 border-slate-200'
   }
 
@@ -102,7 +103,8 @@ export default function Projects() {
     'Scheduled': { title: 'Scheduled', color: 'border-blue-300 bg-blue-50' },
     'In Progress': { title: 'In Progress', color: 'border-amber-300 bg-amber-50' },
     'Paused': { title: 'Paused', color: 'border-red-300 bg-red-50' },
-    'Completed': { title: 'Completed', color: 'border-green-300 bg-green-50' }
+    'Completed': { title: 'Completed', color: 'border-green-300 bg-green-50' },
+    'Rejected': { title: 'Rejected', color: 'border-slate-400 bg-slate-100' } // <-- NEW COLUMN ADDED
   }
 
   if (isLoading) return <div className="p-10 text-center text-slate-500">Loading jobs...</div>
