@@ -20,6 +20,18 @@ export default function Customers() {
   const [toast, setToast] = useState(null)
   const [confirmDialog, setConfirmDialog] = useState({ isOpen: false, customerId: null })
 
+  // --- HARD SECURITY BLOCK ---
+  // This physically prevents anyone who isn't an admin from loading this page data
+  if (userProfile?.role !== 'admin') {
+    return (
+      <div className="flex h-[80vh] items-center justify-center flex-col">
+        <AlertCircle size={48} className="text-red-500 mb-4" />
+        <p className="text-2xl font-black text-slate-900">Access Denied</p>
+        <p className="text-slate-500 mt-2">Only administrators can view the master customer list.</p>
+      </div>
+    )
+  }
+
   // NEW: Helper function to trigger toast messages
   const showToast = (message, type = 'error') => {
     setToast({ message, type })
