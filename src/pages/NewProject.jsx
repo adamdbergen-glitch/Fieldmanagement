@@ -4,13 +4,16 @@ import { supabase } from '../lib/supabase'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useAuth } from '../contexts/AuthContext'
 import { 
-  Save, X, UploadCloud, FileText, DollarSign, Calendar, MapPin, User, Loader2, Search, UserPlus 
+  Save, X, UploadCloud, FileText, DollarSign, Calendar, MapPin, User, Loader2, Search, UserPlus, AlertCircle 
 } from 'lucide-react'
 
 export default function NewProject() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
-  const { user } = useAuth() // Get current user for file upload tracking
+  
+  // NEW: Grab userProfile along with user
+  const { user, userProfile } = useAuth() 
+  
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [files, setFiles] = useState([])
   
@@ -22,7 +25,7 @@ export default function NewProject() {
     name: '',
     email: '',
     phone: '',
-    address: '' // Added address here for the customer profile
+    address: '' 
   })
 
   // Project Form State
@@ -150,6 +153,18 @@ export default function NewProject() {
     } finally {
       setIsSubmitting(false)
     }
+  }
+
+  // --- HARD SECURITY BLOCK ---
+  // If they are not an admin, show the access denied screen
+  if (userProfile?.role !== 'admin') {
+    return (
+      <div className="flex h-[80vh] items-center justify-center flex-col">
+        <AlertCircle size={48} className="text-red-500 mb-4" />
+        <p className="text-2xl font-black text-slate-900">Access Denied</p>
+        <p className="text-slate-500 mt-2">Only administrators can create new projects and customers.</p>
+      </div>
+    )
   }
 
   return (
