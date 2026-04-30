@@ -3,7 +3,7 @@ import { Outlet, Link, useLocation } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { 
   LayoutDashboard, Folder, Users, LogOut, Book, Calendar, UserCog, 
-  Menu, X, Clock, Calculator, DollarSign, ClipboardEdit // <--- 1. ADDED ClipboardEdit
+  Menu, X, Clock, Calculator, DollarSign, ClipboardEdit 
 } from 'lucide-react'
 
 // 1. IMPORT CONFIG (For White-Labeling)
@@ -94,16 +94,16 @@ export default function Layout() {
             Schedule
           </Link>
           
-          {/* CUSTOMERS - RESTRICTED */}
-          {can(userRole, PERMISSIONS.CAN_MANAGE_CREW) && (
+          {/* CUSTOMERS - STRICTLY ADMIN ONLY NOW */}
+          {userRole === 'admin' && (
             <Link to="/customers" className={linkClass('/customers')}>
               <Users size={20} />
               Customers
             </Link>
           )}
 
-          {/* TEAM MANAGEMENT - ADMIN ONLY */}
-          {can(userRole, PERMISSIONS.CAN_DELETE_PROJECT) && (
+          {/* TEAM MANAGEMENT - ADMIN AND FOREMAN */}
+          {can(userRole, PERMISSIONS.CAN_MANAGE_CREW) && (
             <Link to="/team" className={linkClass('/team')}>
               <UserCog size={20} />
               Team
@@ -111,15 +111,15 @@ export default function Layout() {
           )}
 
           {/* FINANCIALS - ADMIN ONLY */}
-          {can(userRole, PERMISSIONS.CAN_DELETE_PROJECT) && (
+          {userRole === 'admin' && (
             <Link to="/financials" className={linkClass('/financials')}>
               <DollarSign size={20} />
               Financials
             </Link>
           )}
 
-          {/* INTERNAL ESTIMATOR - ADMIN ONLY (NEW) */}
-          {can(userRole, PERMISSIONS.CAN_DELETE_PROJECT) && (
+          {/* INTERNAL ESTIMATOR - ADMIN ONLY */}
+          {userRole === 'admin' && (
             <Link to="/estimator" className={linkClass('/estimator')}>
               <ClipboardEdit size={20} />
               Lead Estimator
