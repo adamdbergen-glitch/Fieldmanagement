@@ -5,7 +5,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { format, parseISO, addDays, differenceInCalendarDays, startOfMonth, endOfMonth, setDate, differenceInMinutes, setHours, setMinutes, isBefore } from 'date-fns'
 import { DollarSign, Clock, Calendar } from 'lucide-react'
 import TimeClock from '../components/TimeClock'
-import WeatherWidget from '../components/WeatherWidget' // <--- 1. NEW IMPORT
+import WeatherWidget from '../components/WeatherWidget' 
 
 export default function Dashboard() {
   const { user, userProfile } = useAuth()
@@ -17,19 +17,37 @@ export default function Dashboard() {
 
   // 1. FETCH ACTIVE PROJECTS
   useEffect(() => {
-    fetchActiveProjects()
-  }, [])
+    // Wait until userProfile is loaded so we know their role before querying
+    if (userProfile) {
+      fetchActiveProjects()
+    }
+  }, [userProfile])
 
   async function fetchActiveProjects() {
     try {
       setLoading(true)
-      const { data, error } = await supabase
+      
+      // Default query for Admins: Get all active projects
+      let query = supabase
         .from('projects')
         .select(`*, customer:customers (name)`)
-        .in('status', ['New', 'scheduled', 'in_progress', 'paused', 'In Progress']) 
+        .in('status', ['New', 'Scheduled', 'In Progress', 'Paused']) 
         .order('start_date', { ascending: true, nullsFirst: false })
         .limit(5)
 
+      // --- HARD SECURITY BLOCK FOR DASHBOARD LIST ---
+      // If not an admin, strictly filter to projects they are assigned to
+      if (userProfile?.role !== 'admin') {
+        query = supabase
+          .from('projects')
+          .select(`*, customer:customers (name), project_crew!inner(employee_id)`)
+          .eq('project_crew.employee_id', userProfile.id)
+          .in('status', ['New', 'Scheduled', 'In Progress', 'Paused']) 
+          .order('start_date', { ascending: true, nullsFirst: false })
+          .limit(5)
+      }
+
+      const { data, error } = await query
       if (error) throw error
       setProjects(data || [])
     } catch (error) {
@@ -153,7 +171,7 @@ export default function Dashboard() {
         
         {/* LEFT COLUMN: Weather & Time Clock */}
         <div className="lg:col-span-1 space-y-6">
-          <WeatherWidget /> {/* <--- 2. ADDED WIDGET HERE */}
+          <WeatherWidget /> 
           <TimeClock />
         </div>
         
@@ -206,7 +224,7 @@ export default function Dashboard() {
           <div className="p-8 text-center text-slate-400">Loading...</div>
         ) : projects.length === 0 ? (
           <div className="p-12 text-center text-slate-500">
-            No active jobs found. <Link to="/projects/new" className="text-blue-600 font-bold hover:underline">Create one?</Link>
+            No active jobs found. {userProfile?.role === 'admin' && <Link to="/projects/new" className="text-blue-600 font-bold hover:underline">Create one?</Link>}
           </div>
         ) : (
           <div className="divide-y divide-slate-100">
